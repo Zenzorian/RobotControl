@@ -23,8 +23,8 @@ const PORT = process.env.PORT || 8080;
 
 // Загрузка SSL-сертификатов
 const sslOptions = {
-    key: fs.readFileSync(path.join(__dirname, '../ssl/private.key')),
-    cert: fs.readFileSync(path.join(__dirname, '../ssl/certificate.crt'))
+    key: fs.readFileSync('/home/ubuntu/RobotControl/server/ssl/private.key'),
+    cert: fs.readFileSync('/home/ubuntu/RobotControl/server/ssl/certificate.crt')
 };
 
 // Создание HTTPS сервера
@@ -81,4 +81,4 @@ server.listen(PORT, '0.0.0.0', () => {
     const localIP = getLocalIP();
     console.log(`Сервер запущен на https://${localIP}:${PORT}`);
     console.log(`WebSocket доступен по адресу wss://${localIP}:${PORT}`);
-}); 
+});
