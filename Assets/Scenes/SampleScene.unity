@@ -129,6 +129,7 @@ GameObject:
   m_Component:
   - component: {fileID: 90379646}
   - component: {fileID: 90379648}
+  - component: {fileID: 90379650}
   - component: {fileID: 90379647}
   - component: {fileID: 90379649}
   m_Layer: 5
@@ -226,6 +227,21 @@ MonoBehaviour:
   m_ChildScaleWidth: 0
   m_ChildScaleHeight: 0
   m_ReverseArrangement: 0
+--- !u!114 &90379650
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 90379645}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7b423e34856959b4f8589eb95f078d8f, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  _ipInputField: {fileID: 302076923}
+  _portInputField: {fileID: 1225578399}
+  _connectButton: {fileID: 1363318963}
 --- !u!1 &109970214
 GameObject:
   m_ObjectHideFlags: 0
@@ -323,7 +339,7 @@ MonoBehaviour:
     m_Top: 15
     m_Bottom: 15
   m_ChildAlignment: 0
-  m_Spacing: 120
+  m_Spacing: 50
   m_ChildForceExpandWidth: 1
   m_ChildForceExpandHeight: 1
   m_ChildControlWidth: 0
@@ -563,9 +579,8 @@ GameObject:
   - component: {fileID: 302076925}
   - component: {fileID: 302076924}
   - component: {fileID: 302076923}
-  - component: {fileID: 302076922}
   m_Layer: 5
-  m_Name: InputField (TMP)
+  m_Name: IP InputField
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -591,18 +606,6 @@ RectTransform:
   m_AnchoredPosition: {x: 0, y: 0}
   m_SizeDelta: {x: 293.043, y: 70}
   m_Pivot: {x: 0.5, y: 0.5}
---- !u!114 &302076922
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 302076920}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 263e2c07e93c82641b66a9622d89615c, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
 --- !u!114 &302076923
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -2166,6 +2169,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 5f844759b0db0e24e8c0497f335a8f9b, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  _serverAddressField: {fileID: 90379650}
 --- !u!1 &980548031
 GameObject:
   m_ObjectHideFlags: 0
@@ -2848,7 +2852,7 @@ GameObject:
   - component: {fileID: 1225578399}
   - component: {fileID: 1225578398}
   m_Layer: 5
-  m_Name: InputField (TMP) (1)
+  m_Name: Port InputField
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -3038,7 +3042,7 @@ GameObject:
   - component: {fileID: 1363318964}
   - component: {fileID: 1363318963}
   m_Layer: 5
-  m_Name: Button (Legacy)
+  m_Name: Connect Button
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -4484,14 +4488,14 @@ MonoBehaviour:
       m_Calls: []
   m_text: Enter text...
   m_isRightToLeft: 0
-  m_fontAsset: {fileID: 0}
-  m_sharedMaterial: {fileID: 0}
+  m_fontAsset: {fileID: 11400000, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
+  m_sharedMaterial: {fileID: 2180264, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
   m_fontSharedMaterials: []
   m_fontMaterial: {fileID: 0}
   m_fontMaterials: []
   m_fontColor32:
     serializedVersion: 2
-    rgba: 4294967295
+    rgba: 2150773298
   m_fontColor: {r: 0.19607843, g: 0.19607843, b: 0.19607843, a: 0.5}
   m_enableVertexGradient: 0
   m_colorMode: 3
@@ -4504,12 +4508,12 @@ MonoBehaviour:
   m_spriteAsset: {fileID: 0}
   m_tintAllSprites: 0
   m_StyleSheet: {fileID: 0}
-  m_TextStyleHashCode: 0
+  m_TextStyleHashCode: -1183493901
   m_overrideHtmlColors: 0
   m_faceColor:
     serializedVersion: 2
     rgba: 4294967295
-  m_fontSize: 14
+  m_fontSize: 51
   m_fontSizeBase: 14
   m_fontWeight: 400
   m_enableAutoSizing: 1
@@ -4531,13 +4535,13 @@ MonoBehaviour:
   m_linkedTextComponent: {fileID: 0}
   parentLinkedComponent: {fileID: 0}
   m_enableKerning: 0
-  m_ActiveFontFeatures: 00000000
+  m_ActiveFontFeatures: 
   m_enableExtraPadding: 1
   checkPaddingRequired: 0
   m_isRichText: 1
   m_EmojiFallbackSupport: 1
   m_parseCtrlCharacters: 1
-  m_isOrthographic: 0
+  m_isOrthographic: 1
   m_isCullingEnabled: 0
   m_horizontalMapping: 0
   m_verticalMapping: 0
@@ -4596,7 +4600,7 @@ RectTransform:
   m_AnchorMin: {x: 0, y: 0}
   m_AnchorMax: {x: 0, y: 0}
   m_AnchoredPosition: {x: 0, y: 0}
-  m_SizeDelta: {x: 160, y: 70}
+  m_SizeDelta: {x: 330.0023, y: 70}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &2088725098
 MonoBehaviour:
@@ -4631,7 +4635,7 @@ MonoBehaviour:
     m_HorizontalOverflow: 0
     m_VerticalOverflow: 0
     m_LineSpacing: 1
-  m_Text: Status
+  m_Text: Gamepad Status
 --- !u!222 &2088725099
 CanvasRenderer:
   m_ObjectHideFlags: 0

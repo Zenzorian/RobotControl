@@ -25,7 +25,7 @@ namespace RobotControl
             if (port <= 0 || port > 65535)
                 throw new ArgumentException("Некорректний порт", nameof(port));
                 
-            _baseUrl = $"ws://{ipAddress}:{port}/{path}";
+            _baseUrl = $"wss://{ipAddress}:{port}/{path}";
             _isConnected = false;
             
             // Создаем объект WebSocketConnection
@@ -85,9 +85,9 @@ namespace RobotControl
                 
                 // Ждем подключения или ошибки
                 int attempts = 0;
-                while (!_isConnected && attempts < 10)
+                while (!_isConnected && attempts < 30) // Увеличиваем до 30 попыток
                 {
-                    await Task.Delay(500);
+                    await Task.Delay(1000); // Увеличиваем задержку до 1 секунды
                     attempts++;
                 }
                 

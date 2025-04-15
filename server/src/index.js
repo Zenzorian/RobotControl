@@ -1,13 +1,12 @@
 const express = require('express');
+const https = require('https');
 const WebSocket = require('ws');
-const cors = require('cors');
+const fs = require('fs');
+const path = require('path');
 const os = require('os');
 
-const app = express();
-app.use(cors());
-
-// Получаем IP адрес сервера
-const getLocalIP = () => {
+// Получение локального IP-адреса
+function getLocalIP() {
     const interfaces = os.networkInterfaces();
     for (const name of Object.keys(interfaces)) {
         for (const iface of interfaces[name]) {
@@ -17,61 +16,69 @@ const getLocalIP = () => {
         }
     }
     return 'localhost';
+}
+
+const app = express();
+const PORT = process.env.PORT || 8080;
+
+// Загрузка SSL-сертификатов
+const sslOptions = {
+    key: fs.readFileSync(path.join(__dirname, '../ssl/private.key')),
+    cert: fs.readFileSync(path.join(__dirname, '../ssl/certificate.crt'))
 };
 
-// Создаем HTTP сервер
-const server = require('http').createServer(app);
+// Создание HTTPS сервера
+const server = https.createServer(sslOptions, app);
 
-// Создаем WebSocket сервер
+// Создание WebSocket сервера
 const wss = new WebSocket.Server({ 
     server,
-    // Разрешаем подключения с любого IP
-    host: '0.0.0.0'
+    host: '0.0.0.0' // Принимаем соединения с любого IP
 });
 
-// Хранилище подключенных клиентов
+// Хранение подключенных клиентов
 const clients = new Set();
 
-// Обработка WebSocket соединений
 wss.on('connection', (ws) => {
     console.log('Новое подключение');
     clients.add(ws);
 
-    // Обработка сообщений от клиента
     ws.on('message', (message) => {
         try {
             const data = JSON.parse(message);
             console.log('Получено сообщение:', data);
 
-            // Здесь будет логика обработки команд для робота
-            // Например, отправка команд на Arduino через Serial порт
-
-            // Отправляем подтверждение клиенту
-            ws.send(JSON.stringify({
-                type: 'status',
-                message: 'Команда получена'
-            }));
+            // Обработка сообщений
+            if (data.type === 'command') {
+                // Здесь будет логика обработки команд
+                ws.send(JSON.stringify({
+                    type: 'status',
+                    data: {
+                        status: 'success',
+                        message: 'Команда получена'
+                    }
+                }));
+            }
         } catch (error) {
             console.error('Ошибка обработки сообщения:', error);
             ws.send(JSON.stringify({
                 type: 'error',
-                message: 'Ошибка обработки команды'
+                data: {
+                    message: 'Ошибка обработки сообщения'
+                }
             }));
         }
     });
 
-    // Обработка отключения клиента
     ws.on('close', () => {
         console.log('Клиент отключился');
         clients.delete(ws);
     });
 });
 
-// Стартуем сервер
-const PORT = process.env.PORT || 8080;
-const HOST = process.env.HOST || '0.0.0.0';
-server.listen(PORT, HOST, () => {
+// Запуск сервера
+server.listen(PORT, '0.0.0.0', () => {
     const localIP = getLocalIP();
-    console.log(`Сервер запущен на порту ${PORT}`);
-    console.log(`Доступен по адресу: ws://${localIP}:${PORT}`);
+    console.log(`Сервер запущен на https://${localIP}:${PORT}`);
+    console.log(`WebSocket доступен по адресу wss://${localIP}:${PORT}`);
 }); 
