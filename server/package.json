@@ -3,10 +3,15 @@
   "version": "1.0.0",
   "description": "Сервер для управления роботом",
   "main": "src/index.js",
+  "engines": {
+    "node": ">=14.0.0"
+  },
   "scripts": {
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
-    "prod": "pm2 start src/index.js --name robot-control"
+    "prod": "pm2 start src/index.js --name robot-control",
+    "generate-ssl": "chmod +x scripts/generate-ssl.sh && ./scripts/generate-ssl.sh",
+    "setup": "npm install && npm run generate-ssl"
   },
   "dependencies": {
     "ws": "^8.16.0",

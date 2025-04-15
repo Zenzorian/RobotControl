@@ -4,6 +4,7 @@ const WebSocket = require('ws');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const cors = require('cors');
 
 // Получение локального IP-адреса
 function getLocalIP() {
@@ -21,11 +22,20 @@ function getLocalIP() {
 const app = express();
 const PORT = process.env.PORT || 8080;
 
+// Настройка CORS
+app.use(cors());
+
 // Загрузка SSL-сертификатов
-const sslOptions = {
-    key: fs.readFileSync('/home/ubuntu/RobotControl/server/ssl/private.key'),
-    cert: fs.readFileSync('/home/ubuntu/RobotControl/server/ssl/certificate.crt')
-};
+let sslOptions;
+try {
+    sslOptions = {
+        key: fs.readFileSync(path.join(__dirname, '../ssl/private.key')),
+        cert: fs.readFileSync(path.join(__dirname, '../ssl/certificate.crt'))
+    };
+} catch (error) {
+    console.error('Ошибка загрузки SSL-сертификатов:', error);
+    process.exit(1);
+}
 
 // Создание HTTPS сервера
 const server = https.createServer(sslOptions, app);
@@ -74,6 +84,16 @@ wss.on('connection', (ws) => {
         console.log('Клиент отключился');
         clients.delete(ws);
     });
+
+    ws.on('error', (error) => {
+        console.error('Ошибка WebSocket:', error);
+        clients.delete(ws);
+    });
+});
+
+// Обработка ошибок сервера
+server.on('error', (error) => {
+    console.error('Ошибка сервера:', error);
 });
 
 // Запуск сервера
