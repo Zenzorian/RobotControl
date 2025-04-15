@@ -1,6 +1,5 @@
 {
   "dependencies": {
-    "com.mikeschweitzer.websocket": "https://github.com/mikerochip/unity-websocket.git",
     "com.unity.collab-proxy": "2.7.1",
     "com.unity.feature.2d": "2.0.1",
     "com.unity.ide.cursor": "https://github.com/boxqkrtm/com.unity.ide.cursor.git",

@@ -9,8 +9,8 @@ namespace RobotControl
         public event EventHandler<WebRTCSignalingMessage> WebRTCSignalingReceived;
         public event EventHandler<Texture2D> VideoFrameReceived;
 
-        public RobotVideoClient(string ipAddress, int port) 
-            : base(ipAddress, port, "ws/video")
+        public RobotVideoClient(string ipAddress, int port, string serverThumbprint) 
+            : base(ipAddress, port, "ws/video", serverThumbprint)
         {
         }
 

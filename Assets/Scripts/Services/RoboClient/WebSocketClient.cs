@@ -1,104 +1,168 @@
 using System;
 using System.Threading.Tasks;
 using UnityEngine;
-using MikeSchweitzer.WebSocket;
+using System.Net.WebSockets;
+using System.Threading;
+using System.Text;
+using System.Net.Security;
+using System.Security.Cryptography.X509Certificates;
+using System.Net;
 
 namespace RobotControl
 {
     public abstract class WebSocketClient : IDisposable
     {
-        protected WebSocketConnection _webSocket;
+        protected ClientWebSocket _webSocket;
         protected readonly string _baseUrl;
         protected bool _isConnected;
         protected bool _disposed = false;
+        protected CancellationTokenSource _cts;
+        private readonly string _serverThumbprint;
 
         public bool IsConnected => _isConnected;
         public event EventHandler<string> ConnectionStatusChanged;
         public event EventHandler<string> ErrorOccurred;
         public event EventHandler<string> MessageReceived;
 
-        protected WebSocketClient(string ipAddress, int port, string path)
+        protected WebSocketClient(string ipAddress, int port, string path, string serverThumbprint)
         {
             if (string.IsNullOrWhiteSpace(ipAddress))
                 throw new ArgumentException("IP-адрес не може бути порожнім", nameof(ipAddress));
             
             if (port <= 0 || port > 65535)
                 throw new ArgumentException("Некорректний порт", nameof(port));
+
+            if (string.IsNullOrWhiteSpace(serverThumbprint))
+                throw new ArgumentException("Отпечаток сертификата сервера не может быть пустым", nameof(serverThumbprint));
                 
             _baseUrl = $"wss://{ipAddress}:{port}/{path}";
+            _serverThumbprint = serverThumbprint.Replace(":", "").ToUpper();
             _isConnected = false;
-            
-            // Создаем объект WebSocketConnection
-            GameObject go = new GameObject("WebSocketConnection");
-            _webSocket = go.AddComponent<WebSocketConnection>();
-            _webSocket.DesiredConfig = new WebSocketConfig
-            {
-                Url = _baseUrl
-            };
-            
-            // Подписываемся на события
-            _webSocket.StateChanged += OnWebSocketStateChanged;
-            _webSocket.MessageReceived += OnWebSocketMessageReceived;
-            _webSocket.ErrorMessageReceived += OnWebSocketErrorMessageReceived;
+            _cts = new CancellationTokenSource();
+            _webSocket = new ClientWebSocket();
+
+            // Настраиваем проверку сертификата
+            _webSocket.Options.RemoteCertificateValidationCallback = ValidateServerCertificate;
         }
 
-        private void OnWebSocketStateChanged(WebSocketConnection connection, WebSocketState oldState, WebSocketState newState)
+        private bool ValidateServerCertificate(object sender, X509Certificate certificate, X509Chain chain, SslPolicyErrors sslPolicyErrors)
         {
-            switch (newState)
+            if (sslPolicyErrors == SslPolicyErrors.None)
+                return true;
+
+            // Проверяем, что сертификат соответствует ожидаемому
+            if (certificate is X509Certificate2 cert2)
             {
-                case WebSocketState.Connected:
-                    _isConnected = true;
-                    OnConnectionStatusChanged("Підключено");
-                    break;
-                case WebSocketState.Disconnected:
-                    _isConnected = false;
-                    OnConnectionStatusChanged("Відключено");
-                    break;
-                case WebSocketState.Connecting:
-                    OnConnectionStatusChanged("Підключення...");
-                    break;
-                case WebSocketState.Disconnecting:
-                    OnConnectionStatusChanged("Відключення...");
-                    break;
+                string certThumbprint = cert2.Thumbprint.ToUpper();
+                if (certThumbprint == _serverThumbprint)
+                {
+                    Debug.Log("Сертификат сервера успешно проверен");
+                    return true;
+                }
+                else
+                {
+                    Debug.LogError($"Неверный отпечаток сертификата. Ожидался: {_serverThumbprint}, получен: {certThumbprint}");
+                }
             }
-        }
 
-        private void OnWebSocketMessageReceived(WebSocketConnection connection, WebSocketMessage message)
-        {
-            string textMessage = message.String;
-            MessageReceived?.Invoke(this, textMessage);
-            OnMessageReceived(textMessage);
-        }
-
-        private void OnWebSocketErrorMessageReceived(WebSocketConnection connection, string errorMessage)
-        {
-            _isConnected = false;
-            OnErrorOccurred($"Помилка WebSocket: {errorMessage}");
-            OnConnectionStatusChanged("Помилка підключення");
+            Debug.LogWarning($"Ошибка проверки сертификата: {sslPolicyErrors}");
+            return false;
         }
 
         public async Task<bool> ConnectAsync()
         {
             try
             {
-                _webSocket.Connect();
-                
-                // Ждем подключения или ошибки
-                int attempts = 0;
-                while (!_isConnected && attempts < 30) // Увеличиваем до 30 попыток
+                if (_webSocket.State == WebSocketState.Open)
                 {
-                    await Task.Delay(1000); // Увеличиваем задержку до 1 секунды
-                    attempts++;
+                    Debug.Log("WebSocket уже подключен");
+                    return true;
+                }
+
+                OnConnectionStatusChanged("Підключення...");
+                
+                // Очищаем предыдущее подключение если оно было
+                if (_webSocket.State != WebSocketState.None)
+                {
+                    await DisconnectAsync();
+                    _webSocket = new ClientWebSocket();
+                }
+
+                // Пробуем подключиться несколько раз
+                int maxAttempts = 3;
+                int currentAttempt = 0;
+                
+                while (currentAttempt < maxAttempts)
+                {
+                    try
+                    {
+                        Debug.Log($"Попытка подключения {currentAttempt + 1} из {maxAttempts}");
+                        await _webSocket.ConnectAsync(new Uri(_baseUrl), _cts.Token);
+                        
+                        if (_webSocket.State == WebSocketState.Open)
+                        {
+                            _isConnected = true;
+                            OnConnectionStatusChanged("Підключено");
+                            Debug.Log("WebSocket успешно подключен");
+                            
+                            // Запускаем прослушивание сообщений
+                            _ = StartListening();
+                            return true;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.LogError($"Ошибка подключения (попытка {currentAttempt + 1}): {ex.Message}");
+                        if (currentAttempt == maxAttempts - 1)
+                        {
+                            throw;
+                        }
+                        await Task.Delay(1000); // Ждем 1 секунду перед следующей попыткой
+                    }
+                    currentAttempt++;
                 }
                 
-                return _isConnected;
+                return false;
             }
             catch (Exception ex)
             {
                 _isConnected = false;
-                OnErrorOccurred($"Помилка підключення: {ex.Message}");
+                string errorMessage = $"Помилка підключення: {ex.Message}";
+                Debug.LogError(errorMessage);
+                OnErrorOccurred(errorMessage);
                 OnConnectionStatusChanged("Відключено");
                 return false;
+            }
+        }
+
+        private async Task StartListening()
+        {
+            var buffer = new byte[4096];
+            while (_webSocket.State == WebSocketState.Open && !_cts.Token.IsCancellationRequested)
+            {
+                try
+                {
+                    var result = await _webSocket.ReceiveAsync(new ArraySegment<byte>(buffer), _cts.Token);
+                    if (result.MessageType == WebSocketMessageType.Text)
+                    {
+                        string message = Encoding.UTF8.GetString(buffer, 0, result.Count);
+                        MessageReceived?.Invoke(this, message);
+                        OnMessageReceived(message);
+                    }
+                    else if (result.MessageType == WebSocketMessageType.Close)
+                    {
+                        _isConnected = false;
+                        OnConnectionStatusChanged("Відключено");
+                        break;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _isConnected = false;
+                    OnErrorOccurred($"Помилка отримання повідомлення: {ex.Message}");
+                    OnConnectionStatusChanged("Відключено");
+                    break;
+                }
             }
         }
 
@@ -114,7 +178,8 @@ namespace RobotControl
 
             try
             {
-                _webSocket.AddOutgoingMessage(message);
+                byte[] bytes = Encoding.UTF8.GetBytes(message);
+                await _webSocket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, _cts.Token);
                 return true;
             }
             catch (Exception ex)
@@ -128,7 +193,15 @@ namespace RobotControl
         {
             if (_webSocket != null && _isConnected)
             {
-                _webSocket.Disconnect();
+                try
+                {
+                    OnConnectionStatusChanged("Відключення...");
+                    await _webSocket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Disconnect", _cts.Token);
+                }
+                catch (Exception ex)
+                {
+                    OnErrorOccurred($"Помилка відключення: {ex.Message}");
+                }
             }
             _isConnected = false;
             OnConnectionStatusChanged("Відключено");
@@ -146,11 +219,9 @@ namespace RobotControl
             {
                 if (disposing)
                 {
-                    if (_webSocket != null)
-                    {
-                        _webSocket.Disconnect();
-                        GameObject.Destroy(_webSocket.gameObject);
-                    }
+                    _cts?.Cancel();
+                    _cts?.Dispose();
+                    _webSocket?.Dispose();
                 }
                 _disposed = true;
             }

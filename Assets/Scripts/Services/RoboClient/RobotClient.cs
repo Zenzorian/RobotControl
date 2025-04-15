@@ -5,11 +5,14 @@ using UnityEngine.Events;
 
 namespace RobotControl
 {
-    public class RobotClient : IRobotClient
+    public class RobotClient : WebSocketClient, IRobotClient
     {
         private RobotControlClient _controlClient;
         private RobotVideoClient _videoClient;
-              
+        private readonly string _ipAddress;
+        private readonly int _port;
+        private readonly string _path;
+        private readonly string _serverThumbprint;
         private bool _isConnected;
         private UnityEvent<string, int> _onConnectButtonClicked;
 
@@ -20,25 +23,33 @@ namespace RobotControl
         public event EventHandler<Texture2D> VideoFrameReceived;
         public event EventHandler<WebRTCSignalingMessage> WebRTCSignalingReceived;
 
-        public RobotClient(UnityEvent<string, int> onConnectButtonClicked)
+        public RobotClient(UnityEvent<string, int> onConnectButtonClicked, string serverThumbprint)
+            : base("", 0, "", serverThumbprint)
         {
             _isConnected = false;
             _onConnectButtonClicked = onConnectButtonClicked;           
             _onConnectButtonClicked.AddListener(InitializeConnection);
+            _serverThumbprint = serverThumbprint;
+        }
+
+        protected override void OnMessageReceived(string message)
+        {
+            // Обработка сообщений не требуется, так как используются отдельные клиенты
         }
 
         public async void InitializeConnection(string ipAddress, int port)
         {  
             _isConnected = await ConnectAsync(ipAddress, port);           
         }
+
         public async Task<bool> ConnectAsync(string ipAddress, int port)
         {          
             try
             {
                 Debug.Log("Starting connection process...");
-                // Создаем клиенты  
-                _controlClient = new RobotControlClient(ipAddress, port);
-                _videoClient = new RobotVideoClient(ipAddress, port);
+                // Создаем клиенты с проверкой сертификата
+                _controlClient = new RobotControlClient(ipAddress, port, _serverThumbprint);
+                _videoClient = new RobotVideoClient(ipAddress, port, _serverThumbprint);
                 Debug.Log("Clients created");
 
                 // Подписываемся на события

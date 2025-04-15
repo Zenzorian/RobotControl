@@ -6,8 +6,8 @@ namespace RobotControl
 {
     public class RobotControlClient : WebSocketClient
     {
-        public RobotControlClient(string ipAddress, int port) 
-            : base(ipAddress, port, "ws/control")
+        public RobotControlClient(string ipAddress, int port, string serverThumbprint) 
+            : base(ipAddress, port, "ws/control", serverThumbprint)
         {
         }
 

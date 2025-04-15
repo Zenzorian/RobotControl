@@ -28,12 +28,22 @@ app.use(cors());
 // Загрузка SSL-сертификатов
 let sslOptions;
 const keyPath = '/home/ubuntu/RobotControl/server/ssl/private.key';
-console.log('Проверяю путь:', keyPath);
-console.log('Файл существует:', fs.existsSync(keyPath));
+const certPath = '/home/ubuntu/RobotControl/server/ssl/certificate.crt';
+
+console.log('Проверяю пути сертификатов:');
+console.log('Private key:', keyPath, 'существует:', fs.existsSync(keyPath));
+console.log('Certificate:', certPath, 'существует:', fs.existsSync(certPath));
+
 try {
     sslOptions = {
         key: fs.readFileSync(keyPath),
-        cert: fs.readFileSync('/home/ubuntu/RobotControl/server/ssl/certificate.crt')
+        cert: fs.readFileSync(certPath),
+        // Дополнительные настройки безопасности
+        minVersion: 'TLSv1.2',
+        ciphers: 'HIGH:!aNULL:!MD5:!RC4:!3DES',
+        honorCipherOrder: true,
+        // Отключаем устаревшие протоколы
+        secureProtocol: 'TLSv1_2_method'
     };
 } catch (error) {
     console.error('Ошибка загрузки SSL-сертификатов:', error);
@@ -43,18 +53,34 @@ try {
 // Создание HTTPS сервера
 const server = https.createServer(sslOptions, app);
 
-// Создание WebSocket сервера
+// Создание WebSocket сервера с дополнительными настройками безопасности
 const wss = new WebSocket.Server({ 
     server,
-    host: '0.0.0.0' // Принимаем соединения с любого IP
+    host: '0.0.0.0', // Принимаем соединения с любого IP
+    // Дополнительные настройки безопасности
+    verifyClient: (info, callback) => {
+        // Здесь можно добавить дополнительную проверку клиентов
+        callback(true);
+    },
+    // Настройки для предотвращения DoS атак
+    maxPayload: 1048576, // 1MB
+    clientTracking: true
 });
 
 // Хранение подключенных клиентов
 const clients = new Set();
 
-wss.on('connection', (ws) => {
-    console.log('Новое подключение');
+wss.on('connection', (ws, req) => {
+    console.log('Новое подключение с IP:', req.socket.remoteAddress);
     clients.add(ws);
+
+    // Установка таймаута для неактивных соединений
+    const timeout = setTimeout(() => {
+        if (ws.readyState === WebSocket.OPEN) {
+            console.log('Таймаут соединения');
+            ws.close();
+        }
+    }, 30000); // 30 секунд
 
     ws.on('message', (message) => {
         try {
@@ -85,11 +111,13 @@ wss.on('connection', (ws) => {
 
     ws.on('close', () => {
         console.log('Клиент отключился');
+        clearTimeout(timeout);
         clients.delete(ws);
     });
 
     ws.on('error', (error) => {
         console.error('Ошибка WebSocket:', error);
+        clearTimeout(timeout);
         clients.delete(ws);
     });
 });
