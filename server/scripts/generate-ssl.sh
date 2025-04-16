@@ -33,7 +33,7 @@ ST = Kyiv
 L = Kyiv
 O = RobotControl
 OU = Development
-CN = robotcontrol.local
+CN = 193.169.240.11
 
 [v3_req]
 keyUsage = keyEncipherment, dataEncipherment
@@ -41,8 +41,7 @@ extendedKeyUsage = serverAuth
 subjectAltName = @alt_names
 
 [alt_names]
-DNS.1 = robotcontrol.local
-IP.1 = 127.0.0.1
+IP.1 = 193.169.240.11
 EOF
 
 # Генерируем CSR (Certificate Signing Request)
