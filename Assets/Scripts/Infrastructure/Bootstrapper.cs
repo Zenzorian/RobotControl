@@ -1,15 +1,16 @@
 using UnityEngine;
 using Scripts.Services;
 using Scripts.UI.Markers;
-using RobotControl;
 
 namespace Scripts.Infrastructure
 {
     public class Bootstrapper : MonoBehaviour
     {     
         [SerializeField] private ServerAddressField _serverAddressField;
-        private IInputManagerService _inputManagerService;
-        private IRobotClient _robotClient;
+        private IInputManagerService _inputManagerService;       
+        private const string SERVER_THUMBPRINT = "65863CD6EF075DF79E002205FCAB4FC2B4DD2223E6B3CAB7B8730EE307E79B57";
+        private float _logStatusTimer = 0f;
+        private bool _previousConnectionStatus = false;
 
         private void Awake()
         {
@@ -18,7 +19,9 @@ namespace Scripts.Infrastructure
             _inputManagerService = InitializeInputManagerService();
 
             InitializeSliderHandlerService(uiSliders, _inputManagerService);
-            InitializeServerAddressFieldService(_serverAddressField);
+            _serverAddressField.OnConnectButtonClicked.AddListener(InitializeServerAddressFieldService);
+            
+            Debug.Log("Bootstrapper: Инициализация завершена");
         }
 
         private IInputManagerService InitializeInputManagerService()
@@ -31,14 +34,9 @@ namespace Scripts.Infrastructure
            var sliderHandlerService = new SliderHandlerService(uiSliders, inputManagerService);
             sliderHandlerService.Initialize();
         }
-        private void InitializeServerAddressFieldService(ServerAddressField serverAddressField)
-        {            
-            _robotClient = new RobotClient(_serverAddressField.OnConnectButtonClicked);            
-        }
-        private void Update()
-        {
-            if (_inputManagerService != null) _inputManagerService.Update();
+        private void InitializeServerAddressFieldService(string serverAddress, int serverPort)
+        {   
             
-        }
+        }      
     }
 }
