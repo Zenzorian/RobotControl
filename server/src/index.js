@@ -102,23 +102,21 @@ wss.on('connection', (ws, req) => {
             console.error('Ошибка обработки сообщения:', error);
             ws.send(JSON.stringify({
                 type: 'error',
-                data: {
-                    message: 'Ошибка обработки сообщения'
-                }
+                message: 'Ошибка обработки сообщения'
             }));
         }
     });
 
     ws.on('close', () => {
         console.log('Клиент отключился');
-        clearTimeout(timeout);
         clients.delete(ws);
+        clearTimeout(timeout);
     });
 
     ws.on('error', (error) => {
         console.error('Ошибка WebSocket:', error);
-        clearTimeout(timeout);
         clients.delete(ws);
+        clearTimeout(timeout);
     });
 });
 
