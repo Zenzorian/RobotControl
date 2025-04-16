@@ -27,8 +27,8 @@ app.use(cors());
 
 // Загрузка SSL-сертификатов
 let sslOptions;
-const keyPath = '/home/ubuntu/RobotControl/server/ssl/private.key';
-const certPath = '/home/ubuntu/RobotControl/server/ssl/certificate.crt';
+const keyPath = path.join(__dirname, '../ssl/private.key');
+const certPath = path.join(__dirname, '../ssl/certificate.crt');
 
 console.log('Проверяю пути сертификатов:');
 console.log('Private key:', keyPath, 'существует:', fs.existsSync(keyPath));
@@ -38,12 +38,10 @@ try {
     sslOptions = {
         key: fs.readFileSync(keyPath),
         cert: fs.readFileSync(certPath),
-        // Дополнительные настройки безопасности
+        // Настройки безопасности
         minVersion: 'TLSv1.2',
         ciphers: 'HIGH:!aNULL:!MD5:!RC4:!3DES',
-        honorCipherOrder: true,
-        // Отключаем устаревшие протоколы
-        secureProtocol: 'TLSv1_2_method'
+        honorCipherOrder: true
     };
 } catch (error) {
     console.error('Ошибка загрузки SSL-сертификатов:', error);
