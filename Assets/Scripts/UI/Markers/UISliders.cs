@@ -8,10 +8,7 @@ namespace Scripts.UI.Markers
     {
         public Slider leftSlider;
         public Slider rightSlider;
-        public Slider cameraSlider;
-
-        public Status serverStatus;
-        public Status robotStatus;
+        public Slider cameraSlider;       
 
         public Button settingsButton;
     }

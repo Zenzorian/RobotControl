@@ -16,7 +16,7 @@ public class SimpleDataChannelSender : MonoBehaviour {
     private SessionDescription receivedAnswerSessionDescTemp;
 
     private void Start() {
-        InitClient("192.168.0.207", 8080);
+        InitClient("193.169.240.11", 8080);
     }
 
     private void Update() {

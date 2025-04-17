@@ -5,88 +5,76 @@ namespace Scripts.Services
 {
     public abstract class InputManagerService : IInputManagerService
     {       
-        public event Action<Vector2> OnLeftStickValueChanged;
-        public event Action<Vector2> OnRightStickValueChanged;
-        public event Action<bool> OnSpeedUpPressedChanged;
-        public event Action<bool> OnSpeedDownPressedChanged;
-        public event Action<bool> OnOptionsPressedChanged;
-        public event Action<float> OnDpadValueChanged;
+        public event Action OnValueChanged;
+        public Vector2 LeftStickValue { get; private set; }
+        public Vector2 RightStickValue { get; private set; }
+        public bool SpeedUpPressed { get; private set; }
+        public bool SpeedDownPressed { get; private set; }
+        public bool OptionsPressed { get; private set; }
+        public float DpadValue { get; private set; }
        
-        public abstract void Update();
-
-        private Vector2 _leftStickValue;
-        private Vector2 _rightStickValue;
-        private bool _isSpeedUpPressed;
-        private bool _isSpeedDownPressed;
-        private bool _isOptionsPressed;
-        private float _dpadValue;
-
-        private float _deadZone = 0.15f;
+        public abstract void Update();      
 
         public virtual void Reset()
         {
-            _leftStickValue = Vector2.zero;
-            _rightStickValue = Vector2.zero;
-            _isSpeedUpPressed = false;
-            _isSpeedDownPressed = false;
-            _isOptionsPressed = false;
-            _dpadValue = 0f;
+            LeftStickValue = Vector2.zero;
+            RightStickValue = Vector2.zero;
+            SpeedUpPressed = false;
+            SpeedDownPressed = false;
+            OptionsPressed = false;
+            DpadValue = 0f;
 
-            OnLeftStickValueChanged?.Invoke(_leftStickValue);
-            OnRightStickValueChanged?.Invoke(_rightStickValue);
-            OnSpeedUpPressedChanged?.Invoke(_isSpeedUpPressed);
-            OnSpeedDownPressedChanged?.Invoke(_isSpeedDownPressed);
-            OnOptionsPressedChanged?.Invoke(_isOptionsPressed);
-            OnDpadValueChanged?.Invoke(_dpadValue);
+            OnValueChanged?.Invoke();            
         }
 
         protected void UpdateLeftStickValue(Vector2 newLeftStickValue)
         {           
-            if (newLeftStickValue == _leftStickValue|| newLeftStickValue.magnitude < _deadZone)return;
+            if (newLeftStickValue == LeftStickValue)return;
             
-            _leftStickValue = newLeftStickValue;
-            OnLeftStickValueChanged?.Invoke(_leftStickValue);
-                
+            LeftStickValue = newLeftStickValue;
+            OnValueChanged?.Invoke();   
+            Debug.Log($"UpdateLeftStickValue: {LeftStickValue}");
         }
 
         protected void UpdateRightStickValue(Vector2 newRightStickValue)
-        {           
-            if (newRightStickValue == _rightStickValue|| newRightStickValue.magnitude < _deadZone)return;
+        {  
+            if (newRightStickValue == RightStickValue)return;
             
-            _rightStickValue = newRightStickValue;
-            OnRightStickValueChanged?.Invoke(_rightStickValue);
+            RightStickValue = newRightStickValue;
+            OnValueChanged?.Invoke();
         }
 
         protected void UpdateSpeedUpPressed(bool newSpeedUpPressed)
         {
-            if (newSpeedUpPressed == _isSpeedUpPressed)return;
+            if (newSpeedUpPressed == SpeedUpPressed)return;
             
-            _isSpeedUpPressed = newSpeedUpPressed;
-            OnSpeedUpPressedChanged?.Invoke(_isSpeedUpPressed);
+            SpeedUpPressed = newSpeedUpPressed;
+            OnValueChanged?.Invoke();
         }       
 
         protected void UpdateSpeedDownPressed(bool newSpeedDownPressed)
         {
-            if (newSpeedDownPressed == _isSpeedDownPressed)return;
+            if (newSpeedDownPressed == SpeedDownPressed)return;
             
-            _isSpeedDownPressed = newSpeedDownPressed;
-            OnSpeedDownPressedChanged?.Invoke(_isSpeedDownPressed);
+            SpeedDownPressed = newSpeedDownPressed;
+            OnValueChanged?.Invoke();
         }
 
         protected void UpdateOptionsPressed(bool newOptionsPressed)
         {
-            if (newOptionsPressed == _isOptionsPressed)return;
+            if (newOptionsPressed == OptionsPressed)return;
             
-            _isOptionsPressed = newOptionsPressed;
-            OnOptionsPressedChanged?.Invoke(_isOptionsPressed);
+            OptionsPressed = newOptionsPressed;
+            OnValueChanged?.Invoke();
+            Debug.Log($"UpdateOptionsPressed: {OptionsPressed}");
         }
 
         protected void UpdateDpadValue(float newDpadValue)
-        {
-            if (newDpadValue == _dpadValue)return;
-            
-            _dpadValue = newDpadValue;
-            OnDpadValueChanged?.Invoke(_dpadValue);
+        {          
+            if (newDpadValue == DpadValue)return;
+
+            DpadValue = newDpadValue;
+            OnValueChanged?.Invoke();
         }
         
     }

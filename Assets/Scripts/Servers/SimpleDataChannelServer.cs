@@ -3,7 +3,8 @@ using System.Net.Sockets;
 using UnityEngine;
 using WebSocketSharp.Server;
 
-public class SimpleDataChannelServer : MonoBehaviour {
+public class SimpleDataChannelServer : MonoBehaviour 
+{
     private WebSocketServer wssv;
     private string serverIpv4Address;
     private int serverPort = 8080;
