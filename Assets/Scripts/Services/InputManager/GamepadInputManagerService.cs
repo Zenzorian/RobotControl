@@ -19,13 +19,11 @@ namespace Scripts.Services
 
             UpdateRightStickValue(_gamepadActions.RightStickMove.ReadValue<Vector2>());            
 
-            UpdateSpeedUpPressed(_gamepadActions.SpeedUp.IsPressed());           
-
-            UpdateSpeedDownPressed(_gamepadActions.SpeedDown.IsPressed());           
-
+            UpdateSpeedValue(_gamepadActions.SpeedDown.IsPressed() ? -1f : _gamepadActions.SpeedUp.IsPressed() ? 1f : 0f);            
+           
             UpdateOptionsPressed(_gamepadActions.Settings.IsPressed());          
 
-            UpdateDpadValue(_gamepadActions.CameraLeft.IsPressed() ? -1f : _gamepadActions.CameraRight.IsPressed() ? 1f : 0f);            
+            UpdateCameraAngle(_gamepadActions.CameraLeft.ReadValue<float>(), _gamepadActions.CameraRight.ReadValue<float>());            
         }
     }
 } 

@@ -26,9 +26,9 @@ namespace Scripts.Infrastructure
 
             InitializeStatus();
 
-            InitializeSliderHandlerService(uiSliders, _inputManagerService);
+            InitializeSliderHandlerService(uiSliders, _inputManagerService);          
 
-            _serverAddressField.OnConnectButtonClicked.AddListener(InitializeWebSocketService);
+            InitializeSettingsHandlerService();
             
             Debug.Log("Bootstrapper: Инициализация завершена");
         }
@@ -36,6 +36,7 @@ namespace Scripts.Infrastructure
         private void InitializeInputManagerService()
         {           
             _inputManagerService = new GamepadInputManagerService();
+            _inputManagerService.Reset();
         }
         private void InitializeSliderHandlerService(UISliders uiSliders, IInputManagerService inputManagerService)
         {
@@ -54,6 +55,12 @@ namespace Scripts.Infrastructure
             _webSocketClient = new WebSocketClient(serverAddress, serverPort, _status);
 
             _commandSenderService = new CommandSenderService(_inputManagerService, _webSocketClient, _status);
+        }
+        private void InitializeSettingsHandlerService()
+        {
+            var settingsMarkers = FindFirstObjectByType<SettingsMarkers>();
+            var settingsHandlerService = new SettingsHandlerService(_inputManagerService, settingsMarkers, InitializeWebSocketService);
+            
         }
         private void Update()
         {

@@ -47,39 +47,39 @@ public partial class @GamepadInput: IInputActionCollection2, IDisposable
                 },
                 {
                     ""name"": ""CameraLeft"",
-                    ""type"": ""Button"",
+                    ""type"": ""Value"",
                     ""id"": ""d64c5698-9d31-48db-b2cd-ca49b69dcef1"",
-                    ""expectedControlType"": """",
+                    ""expectedControlType"": ""Analog"",
                     ""processors"": """",
-                    ""interactions"": ""Hold"",
-                    ""initialStateCheck"": false
+                    ""interactions"": """",
+                    ""initialStateCheck"": true
                 },
                 {
                     ""name"": ""CameraRight"",
-                    ""type"": ""Button"",
+                    ""type"": ""Value"",
                     ""id"": ""151a9ec5-a8a8-49fa-a439-d1858b2eed1b"",
-                    ""expectedControlType"": """",
+                    ""expectedControlType"": ""Analog"",
                     ""processors"": """",
-                    ""interactions"": ""Hold"",
-                    ""initialStateCheck"": false
+                    ""interactions"": """",
+                    ""initialStateCheck"": true
                 },
                 {
                     ""name"": ""SpeedUp"",
-                    ""type"": ""Button"",
+                    ""type"": ""Value"",
                     ""id"": ""bf8a8aaa-d661-49ba-86d0-2a481e8cd278"",
-                    ""expectedControlType"": """",
+                    ""expectedControlType"": ""Dpad"",
                     ""processors"": """",
                     ""interactions"": """",
-                    ""initialStateCheck"": false
+                    ""initialStateCheck"": true
                 },
                 {
                     ""name"": ""SpeedDown"",
-                    ""type"": ""Button"",
-                    ""id"": ""f8cfbbca-fa76-4bd0-a104-1a54b8021253"",
-                    ""expectedControlType"": """",
+                    ""type"": ""Value"",
+                    ""id"": ""6f912488-cc2c-43e3-9c59-95ff261dda8e"",
+                    ""expectedControlType"": ""Dpad"",
                     ""processors"": """",
                     ""interactions"": """",
-                    ""initialStateCheck"": false
+                    ""initialStateCheck"": true
                 },
                 {
                     ""name"": ""Settings"",
@@ -116,8 +116,19 @@ public partial class @GamepadInput: IInputActionCollection2, IDisposable
                 },
                 {
                     ""name"": """",
-                    ""id"": ""dc94cf10-ca98-4142-8bad-3afbdc685e4f"",
-                    ""path"": ""<Gamepad>/dpad/left"",
+                    ""id"": ""bbd5bebb-112f-46bc-953e-10145da5acb3"",
+                    ""path"": ""<Gamepad>/start"",
+                    ""interactions"": """",
+                    ""processors"": """",
+                    ""groups"": """",
+                    ""action"": ""Settings"",
+                    ""isComposite"": false,
+                    ""isPartOfComposite"": false
+                },
+                {
+                    ""name"": """",
+                    ""id"": ""746685d2-2c82-4744-85f5-0773419a3bc1"",
+                    ""path"": ""<Gamepad>/leftTrigger"",
                     ""interactions"": """",
                     ""processors"": """",
                     ""groups"": """",
@@ -127,8 +138,8 @@ public partial class @GamepadInput: IInputActionCollection2, IDisposable
                 },
                 {
                     ""name"": """",
-                    ""id"": ""02dd4472-7f07-41b8-97c5-7c49fcfb0d1f"",
-                    ""path"": ""<Gamepad>/dpad/right"",
+                    ""id"": ""00b0f1bb-753e-4888-8842-7c6d6b336aea"",
+                    ""path"": ""<Gamepad>/rightTrigger"",
                     ""interactions"": """",
                     ""processors"": """",
                     ""groups"": """",
@@ -138,8 +149,8 @@ public partial class @GamepadInput: IInputActionCollection2, IDisposable
                 },
                 {
                     ""name"": """",
-                    ""id"": ""a06429d5-e049-47c5-b4bb-7a67df87cedf"",
-                    ""path"": ""<Gamepad>/buttonNorth"",
+                    ""id"": ""1c24d95f-a0d2-4c41-9aa0-efbeef91997f"",
+                    ""path"": ""<Gamepad>/dpad/up"",
                     ""interactions"": """",
                     ""processors"": """",
                     ""groups"": """",
@@ -149,23 +160,12 @@ public partial class @GamepadInput: IInputActionCollection2, IDisposable
                 },
                 {
                     ""name"": """",
-                    ""id"": ""6d1b80e4-4bdd-4121-808a-07a4e004386d"",
-                    ""path"": ""<Gamepad>/buttonSouth"",
+                    ""id"": ""470efbc6-c9cf-4dc1-9d9b-a66942efad8a"",
+                    ""path"": ""<Gamepad>/dpad/down"",
                     ""interactions"": """",
                     ""processors"": """",
                     ""groups"": """",
                     ""action"": ""SpeedDown"",
-                    ""isComposite"": false,
-                    ""isPartOfComposite"": false
-                },
-                {
-                    ""name"": """",
-                    ""id"": ""bbd5bebb-112f-46bc-953e-10145da5acb3"",
-                    ""path"": ""<Gamepad>/start"",
-                    ""interactions"": """",
-                    ""processors"": """",
-                    ""groups"": """",
-                    ""action"": ""Settings"",
                     ""isComposite"": false,
                     ""isPartOfComposite"": false
                 }

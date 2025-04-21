@@ -12,7 +12,8 @@ namespace Scripts.Services
         private float _commandTimer = 0f;
         private float _commandInterval = 0.05f; // 20 команд в секунду по умолчанию
         
-        private Command _lastCommand = new Command();
+        private Command _lastCommand = new Command();       
+          
                
         public int CommandsPerSecond
         {
@@ -57,23 +58,25 @@ namespace Scripts.Services
         }
 
         private string FormatCommand(Command command)
-        {            
-            string jsonData = JsonUtility.ToJson(command);
+        {  
+            Command scaledCommand = command;           
             
-            return $"COMMAND!{jsonData}";
+            string jsonData = JsonUtility.ToJson(scaledCommand);
+            
+            Debug.Log($"COMMAND!{jsonData}");
+
+            return $"COMMAND!{jsonData}";           
         }
 
         private void OnValueChanged()
         {
+            _lastCommand.cameraAngle = _inputManager.CameraAngle;
+
             _lastCommand.leftStickValue = _inputManager.LeftStickValue;
             _lastCommand.rightStickValue = _inputManager.RightStickValue;   
-            _lastCommand.speedUpPressed = _inputManager.SpeedUpPressed;
-            _lastCommand.speedDownPressed = _inputManager.SpeedDownPressed;
-            _lastCommand.optionsPressed = _inputManager.OptionsPressed;
-            _lastCommand.dpadValue = _inputManager.DpadValue;
-        
+                    
             SendCommand();
-        }        
+        }         
        
         public void Dispose()
         {
@@ -86,10 +89,7 @@ namespace Scripts.Services
     public struct Command
     {
         public Vector2 leftStickValue;
-        public Vector2 rightStickValue;
-        public bool speedUpPressed;
-        public bool speedDownPressed;
-        public bool optionsPressed;
-        public float dpadValue;
+        public Vector2 rightStickValue; 
+        public float cameraAngle;      
     }
 } 

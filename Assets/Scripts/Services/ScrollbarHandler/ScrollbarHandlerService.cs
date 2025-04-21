@@ -70,9 +70,8 @@ namespace Scripts.Services
         }
 
         private void SetCameraSliderValue()
-        {
-            if (_inputManagerService.DpadValue == 0) return;
-            CameraSliderValue = _inputManagerService.DpadValue;
+        {           
+            CameraSliderValue = _inputManagerService.CameraAngle;
         }
 }
 }

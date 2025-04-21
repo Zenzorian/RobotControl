@@ -8,12 +8,12 @@ namespace Scripts.Services
         event Action OnValueChanged;
         
         Vector2 LeftStickValue { get; }
-        Vector2 RightStickValue { get; }
-        bool SpeedUpPressed { get; }
-        bool SpeedDownPressed { get; }
-        bool OptionsPressed { get; }
-        float DpadValue { get; }
+        Vector2 RightStickValue { get; } 
 
+        bool OptionsPressed { get; }
+        float CameraAngle { get; }    
+        float SpeedCoefficient { get; set; }
+       
         void Update();
         void Reset();
     }

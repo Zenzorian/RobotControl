@@ -23,13 +23,11 @@ namespace Scripts.Services
             float rightValue = _keyboardActions.RightFrontKey.IsPressed() ? 1f : _keyboardActions.RightBackKey.IsPressed() ? -1f : 0f;
             UpdateRightStickValue(new Vector2(0f, rightValue));            
 
-            UpdateSpeedUpPressed(_keyboardActions.SpeedUp.IsPressed());           
-
-            UpdateSpeedDownPressed(_keyboardActions.SpeedDown.IsPressed());           
+            UpdateSpeedValue(_keyboardActions.SpeedDown.IsPressed() ? -1f : _keyboardActions.SpeedUp.IsPressed() ? 1f : 0f);           
 
             UpdateOptionsPressed(_keyboardActions.Settings.IsPressed());          
 
-            UpdateDpadValue(_keyboardActions.CameraLeft.IsPressed() ? -1f : _keyboardActions.CameraRight.IsPressed() ? 1f : 0f);
+            UpdateCameraAngle(_keyboardActions.CameraLeft.ReadValue<float>(), _keyboardActions.CameraRight.ReadValue<float>());
         }
     }
 } 
