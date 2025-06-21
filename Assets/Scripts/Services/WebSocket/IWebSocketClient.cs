@@ -7,6 +7,10 @@ namespace Scripts.Services
     {
         WebSocket GetWebSocket { get; }
         bool IsConnected { get; }
+        
+        event Action<string> OnMessageReceived;
+        
         void Update();
+        void SendMessage(string message);
     } 
 }

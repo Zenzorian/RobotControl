@@ -1,8 +1,6 @@
 using WebSocketSharp;
 using UnityEngine;
-using Scripts.UI;
 using System;
-using System.Collections.Generic;
 using System.Collections.Concurrent;
 
 namespace Scripts.Services
@@ -11,6 +9,8 @@ namespace Scripts.Services
     {
         public WebSocket GetWebSocket{get{return _webSocket;} private set{}}
         public bool IsConnected{get; private set;}
+        
+        public event Action<string> OnMessageReceived;
        
         private readonly IStatus _status;
         private WebSocket _webSocket;
@@ -35,7 +35,7 @@ namespace Scripts.Services
         {           
             _mainThreadActions.Enqueue(() => {
                 _status.UpdateServerStatus(true);
-                _status.Info("Подключено");
+                _status.Info("Подключено к серверу");
 
                 _webSocket.Send("REGISTER!CONTROLLER");
                 IsConnected = true;
@@ -48,12 +48,32 @@ namespace Scripts.Services
             _mainThreadActions.Enqueue(() => {
                 try
                 {
-                    Debug.Log($"Получено сообщение: {message}");
+                    //Debug.Log($"Получено сообщение: {message}");
                     _status.UpdateServerStatus(true);
 
                     if (message == "REGISTERED!CONTROLLER") 
                     {               
                         _status.Info("Контроллер успешно зарегистрирован");
+                    }
+                    else if (message.StartsWith("VIDEO_FRAME!"))
+                    {
+                        // Видео кадры обрабатываются OptimizedRobotVideoService
+                        // Просто передаем сообщение подписчикам
+                    }
+                    else if (message.StartsWith("ERROR!"))
+                    {
+                        _status.Error($"Ошибка сервера: {message.Substring(6)}");
+                    }
+                    
+                    // Уведомляем подписчиков о получении сообщения
+                    try
+                    {
+                        OnMessageReceived?.Invoke(message);
+                    }
+                    catch (Exception eventEx)
+                    {
+                        Debug.LogError($"Ошибка в обработчике события OnMessageReceived: {eventEx.Message}");
+                        Debug.LogError($"Stack trace: {eventEx.StackTrace}");
                     }
                 }
                 catch (Exception ex)
@@ -77,10 +97,36 @@ namespace Scripts.Services
         {           
             ushort code = e.Code;
             _mainThreadActions.Enqueue(() => {
-                _status.Info($"Отключено: {code}");
+                _status.Info($"Отключено от сервера: {code}");
                 IsConnected = false;
                 _status.UpdateServerStatus(false);
             });
+        }
+
+        public void SendMessage(string message)
+        {
+            if (_webSocket != null && IsConnected && _webSocket.ReadyState == WebSocketState.Open)
+            {
+                try
+                {
+                    _webSocket.Send(message);
+                    Debug.Log($"Отправлено сообщение: {message}");
+                }
+                catch (Exception ex)
+                {
+                    _mainThreadActions.Enqueue(() => {
+                        _status.Error($"Ошибка отправки сообщения: {ex.Message}");
+                    });
+                    Debug.LogError($"Ошибка отправки WebSocket сообщения: {ex.Message}");
+                }
+            }
+            else
+            {
+                _mainThreadActions.Enqueue(() => {
+                    _status.Warning("Невозможно отправить сообщение - WebSocket не подключен");
+                });
+                Debug.LogWarning($"Попытка отправить сообщение при неактивном соединении: {message}");
+            }
         }
         
         public void Update()

@@ -61,9 +61,7 @@ namespace Scripts.Services
         {  
             Command scaledCommand = command;           
             
-            string jsonData = JsonUtility.ToJson(scaledCommand);
-            
-            Debug.Log($"COMMAND!{jsonData}");
+            string jsonData = JsonUtility.ToJson(scaledCommand);         
 
             return $"COMMAND!{jsonData}";           
         }

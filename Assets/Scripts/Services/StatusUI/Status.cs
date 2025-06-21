@@ -13,12 +13,10 @@ namespace Scripts.Services
 
         public void UpdateServerStatus(bool isConnected)
         {
-            Debug.Log($"UpdateServerStatus: {isConnected}");
             _statusMarker.serverStatusImage.color = isConnected ? _statusMarker.activeColor : _statusMarker.inactiveColor;            
         }
         public void UpdateRobotStatus(bool isConnected)
-        {
-            Debug.Log($"UpdateRobotStatus: {isConnected}");
+        {           
             _statusMarker.robotStatusImage.color = isConnected ? _statusMarker.activeColor : _statusMarker.inactiveColor;
         }      
 
@@ -34,6 +32,13 @@ namespace Scripts.Services
             Debug.Log($"Info: {message}");
             _statusMarker.debugText.color = _statusMarker.infoTextColor;
            _statusMarker.debugText.text = message;
+        }
+
+        public void Warning(string message)
+        {
+            Debug.Log($"Warning: {message}");
+            _statusMarker.debugText.color = Color.yellow; // Используем желтый цвет для предупреждений
+            _statusMarker.debugText.text = message;
         }
     }
 }

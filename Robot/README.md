@@ -1,27 +1,25 @@
-# Клієнт робота для WebRTC керування
+# Клієнт робота для управління моторами
 
-Цей проєкт забезпечує підключення робота на базі Raspberry Pi до сервера WebSocket для прийому команд керування та передачі відеопотоку через WebRTC.
+Цей проєкт забезпечує підключення робота на базі Raspberry Pi до сервера WebSocket для прийому команд керування моторами.
 
 ## Вимоги
 
 - Raspberry Pi 4 (або новіше)
-- USB веб-камера
-- Привід моторів (наприклад, L298N)
+- Привід моторів (наприклад, L298N або Pixhawk)
 - Python 3.7 або новіше
 
 ## Встановлення
 
-1. Встановіть залежності Python:
+### Стандартний контролер (GPIO)
 
 ```bash
 pip install -r requirements.txt
 ```
 
-2. Встановіть системні залежності для aiortc:
+### Pixhawk контролер
 
 ```bash
-sudo apt-get update
-sudo apt-get install -y libavdevice-dev libavfilter-dev libavformat-dev libavcodec-dev libswresample-dev libswscale-dev libavutil-dev libsrtp2-dev libopus-dev libvpx-dev
+pip install -r requirements-pixhawk.txt
 ```
 
 ## Підключення апаратного забезпечення
@@ -42,25 +40,28 @@ sudo apt-get install -y libavdevice-dev libavfilter-dev libavformat-dev libavcod
 
 Ви можете змінити ці піни у файлі `motor_controller.py`.
 
+### Підключення Pixhawk
+
+Для використання Pixhawk як контролера моторів підключіть його через USB або UART.
+
 ## Запуск
 
 ### Симуляційний режим (без моторів)
 
 ```bash
-python robot_client.py --server ws://193.169.240.11:8080
+python robot_client.py --server ws://localhost:8080
 ```
 
-### Режим з керуванням моторами
+### Тестування з керуванням моторами
 
 ```bash
-python robot_client.py --server ws://193.169.240.11:8080 --use-motors
+python robot_client.py --server ws://localhost:8080 --debug
 ```
 
 ### Додаткові параметри
 
-- `--server` - URL WebSocket-сервера (за замовчуванням: ws://193.169.240.11:8080)
-- `--camera` - Індекс USB-камери (за замовчуванням: 0)
-- `--use-motors` - Увімкнути керування реальними моторами через GPIO
+- `--server` - URL WebSocket-сервера (за замовчуванням: ws://localhost:8080)
+- `--debug` - Увімкнути детальне логування
 
 ## Тестування моторів
 
@@ -75,8 +76,15 @@ python motor_controller.py
 Робот спілкується з сервером через наступні повідомлення:
 
 - `REGISTER!ROBOT` - Реєстрація на сервері як робот
-- `COMMAND!<json_data>` - Отримання команд управління
-- `OFFER!<sdp_data>` - Отримання WebRTC пропозиції для відео
-- `ANSWER!<sdp_data>` - Відправлення WebRTC відповіді
-- `CANDIDATE!<ice_data>` - Обмін ICE кандидатами
-- `TELEMETRY!<json_data>` - Відправлення телеметрії 
+- JSON команди з типом `command` для управління моторами
+- JSON телеметрія для відправлення статусу
+
+## Безпека
+
+- Автоматична зупинка моторів при втраті зв'язку (2 секунди)
+- Повне відключення після 60 секунд бездіяльності
+- Система моніторингу з'єднання
+
+## Відео
+
+Для передачі відео використовуйте `optimized_video_client.py` - він працює незалежно від системи управління моторами та використовує оптимізований протокол без WebRTC. 

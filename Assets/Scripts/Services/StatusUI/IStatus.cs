@@ -1,5 +1,3 @@
-
-
 namespace Scripts.Services
 {
     public interface IStatus
@@ -8,7 +6,8 @@ namespace Scripts.Services
         void UpdateRobotStatus(bool isConnected);
        
         void Error(string message);
-        void Info(string message);  
+        void Info(string message);
+        void Warning(string message);
     }
 }
     

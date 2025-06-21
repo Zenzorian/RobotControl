@@ -2,51 +2,23 @@ import asyncio
 import websockets
 import json
 import logging
-import cv2
-import numpy as np
-import argparse
 import time
-from aiortc import RTCPeerConnection, RTCSessionDescription, VideoStreamTrack
-from aiortc.contrib.media import MediaPlayer, MediaRelay
-from aiortc.mediastreams import VideoFrame
+import argparse
 
 # Налаштування логування
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("robot")
 
-class CameraVideoStreamTrack(VideoStreamTrack):
-    def __init__(self, camera_index=0):
-        super().__init__()
-        self.camera = cv2.VideoCapture(camera_index)
-        self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-        self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-        
-    async def recv(self):
-        pts, time_base = await self.next_timestamp()
-        ret, frame = self.camera.read()
-        if not ret:
-            logger.warning("Не вдалося отримати кадр з камери")
-            # Створюємо порожній кадр якщо читання не вдалося
-            frame = np.zeros((480, 640, 3), np.uint8)
-        
-        # Підготовлюємо кадр для відправлення через WebRTC
-        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        frame = VideoFrame.from_ndarray(frame, format="rgb24")
-        frame.pts = pts
-        frame.time_base = time_base
-        return frame
-
 class RobotClient:
     def __init__(self, server_url, motor_controller=None):
         self.server_url = server_url
         self.motor_controller = motor_controller
-        self.pc = None
         self.socket = None
-        self.track = None
-        self.camera_player = None
-        self.camera_relay = MediaRelay()
         self.last_command_time = time.time()
-        self.command_timeout = 2.0  # Таймаут у секундах
+        self.command_timeout = 2.0   # Таймаут для команд остановки (2 секунды)
+        self.motor_disable_timeout = 60.0  # Полное отключение моторов через 60 секунд
+        self.motors_stopped = False  # Флаг для отслеживания состояния моторов
+        self.motors_disabled = False # Флаг полного отключения управления моторами
         self.safety_check_interval = 0.5  # Інтервал перевірки у секундах
         self.is_connection_active = False
         logger.debug(f"Ініціалізовано RobotClient для сервера {server_url}")
@@ -64,12 +36,9 @@ class RobotClient:
                 self.socket = socket
                 logger.info("Підключення встановлено")
                 
-                # Ініціалізуємо захоплення з камери
-                self._setup_camera()
-                
-                # Відправляємо повідомлення про підключення
-                await self._send_message("connect", {"role": "robot"})
-                logger.debug("Відправлено повідомлення про підключення")
+                # Відправляємо строку реєстрації
+                await self.socket.send("REGISTER!ROBOT")
+                logger.debug("Відправлено REGISTER!ROBOT")
                 
                 # Нескінченний цикл обробки повідомлень
                 while True:
@@ -105,206 +74,174 @@ class RobotClient:
         try:
             while self.is_connection_active:
                 current_time = time.time()
-                elapsed_time = current_time - self.last_command_time
                 
-                if elapsed_time > self.command_timeout:
-                    logger.warning(f"Таймаут команд ({elapsed_time:.1f}с). Зупиняємо мотори.")
-                    await self._stop_motors()
+                # Перевіряємо, чи не застарілі команди управління
+                if current_time - self.last_command_time > self.command_timeout:
+                    if not self.motors_stopped:
+                        logger.warning(f"Команди не отримувалися {self.command_timeout} сек. Зупинка моторів.")
+                        await self._stop_motors()
                 
+                # Перевіряємо повне відключення моторів при довгій бездіяльності
+                if current_time - self.last_command_time > self.motor_disable_timeout:
+                    if not self.motors_disabled:
+                        logger.warning(f"Команди не отримувалися {self.motor_disable_timeout} сек. Повне відключення моторів.")
+                        await self._disable_motors()
+                        
                 await asyncio.sleep(self.safety_check_interval)
         except asyncio.CancelledError:
-            logger.debug("Завершення контуру безпеки")
-        except Exception as e:
-            logger.error(f"Помилка в контурі безпеки: {e}")
-            await self._stop_motors()
+            logger.info("Контур безпеки завершено")
     
     async def _stop_motors(self):
-        """Зупинка моторів"""
-        if self.motor_controller:
-            logger.info("Аварійна зупинка моторів")
-            self.motor_controller.set_motors(0, 0)
+        """Зупинити всі мотори, але залишити їх увімкненими"""
+        if self.motor_controller and not self.motors_stopped:
+            logger.info("🛑 Зупинка всіх моторів (залишити увімкненими)")
+            await self.motor_controller.stop_all()
+            self.motors_stopped = True
+    
+    async def _disable_motors(self):
+        """Повністю відключити мотори"""
+        if self.motor_controller and not self.motors_disabled:
+            logger.info("🔌 Повне відключення моторів")
+            await self.motor_controller.disable_all()
+            self.motors_disabled = True
     
     async def _handle_message(self, message):
-        """Обробка вхідного повідомлення від сервера"""
+        """Обробити отримане повідомлення"""
         try:
-            # Перевіряємо формат COMMAND!{json}
-            if message.startswith("COMMAND!"):
-                json_data = message[8:]  # Відрізаємо COMMAND!
-                data = json.loads(json_data)
-                self.last_command_time = time.time()  # Оновлюємо час останньої команди
-                await self._handle_command(data)
-                return
+            # Перевіряємо, чи це JSON повідомлення
+            if message.startswith('{') and message.endswith('}'):
+                data = json.loads(message)
                 
-            # Стандартна обробка JSON повідомлень
-            data = json.loads(message)
-            message_type = data.get("type")
-            logger.debug(f"Обробка повідомлення типу {message_type}")
-            
-            if message_type == "offer":
-                await self._handle_offer(data)
-            elif message_type == "command":
-                self.last_command_time = time.time()  # Оновлюємо час останньої команди
-                await self._handle_command(data)
+                if data.get('type') == 'command':
+                    await self._handle_command(data)
+                elif data.get('type') == 'telemetry_request':
+                    # Відправляємо телеметрію
+                    telemetry = {
+                        'type': 'telemetry',
+                        'timestamp': time.time(),
+                        'motors_stopped': self.motors_stopped,
+                        'motors_disabled': self.motors_disabled,
+                        'connection_active': self.is_connection_active
+                    }
+                    await self._send_telemetry(telemetry)
+                else:
+                    logger.debug(f"Невідомий тип JSON повідомлення: {data.get('type')}")
             else:
-                logger.warning(f"Невідомий тип повідомлення: {message_type}")
+                logger.debug(f"Отримано не-JSON повідомлення: {message}")
+                
         except json.JSONDecodeError:
-            logger.error("Неможливо декодувати JSON повідомлення")
+            logger.warning(f"Не вдалося розпарсити JSON: {message}")
         except Exception as e:
-            logger.error(f"Помилка при обробці повідомлення: {e}")
+            logger.error(f"Помилка обробки повідомлення: {e}")
     
     async def _handle_command(self, data):
-        """Обробка команди керування від сервера"""
+        """Обробити команду управління"""
         try:
-            # Обробка прямого формату команди від Unity контролера
-            if "leftStickValue" in data:
-                left_stick = data.get("leftStickValue", {"x": 0, "y": 0})
-                right_stick = data.get("rightStickValue", {"x": 0, "y": 0})
-                camera_angle = data.get("cameraAngle", 90.0)
-                
-                logger.debug(f"Джойстики: лівий={left_stick}, правий={right_stick}, кут камери={camera_angle}")
-                
-                # Керування моторами на основі лівого джойстика
-                if self.motor_controller:
-                    # Використовуємо значення x та y лівого джойстика для обчислення швидкостей моторів
-                    left_speed, right_speed = self._calculate_motor_speeds(left_stick["x"], left_stick["y"])
-                    logger.debug(f"Встановлення швидкостей моторів: лівий={left_speed}, правий={right_speed}")
-                    self.motor_controller.set_motors(left_speed, right_speed)
-                
-                # Відправляємо телеметрію
-                await self._send_telemetry({
-                    "leftStick": left_stick, 
-                    "rightStick": right_stick, 
-                    "cameraAngle": camera_angle
-                })
+            if not self.motor_controller:
+                logger.warning("Контролер моторів не підключений")
                 return
-            
-            # Обробка старого формату команди (для зворотної сумісності)
-            command = data.get("command", {})
-            command_type = command.get("type")
-            logger.debug(f"Отримана команда: {command_type}")
-            
-            if command_type == "joystick":
-                x = command.get("x", 0)
-                y = command.get("y", 0)
-                logger.debug(f"Джойстик: x={x}, y={y}")
                 
-                # Керування моторами
-                if self.motor_controller:
-                    left_speed, right_speed = self._calculate_motor_speeds(x, y)
-                    logger.debug(f"Встановлення швидкостей моторів: лівий={left_speed}, правий={right_speed}")
-                    self.motor_controller.set_motors(left_speed, right_speed)
+            # Оновлюємо час останньої команди
+            self.last_command_time = time.time()
+            
+            # Якщо мотори були зупинені/відключені, включаємо їх знову
+            if self.motors_stopped or self.motors_disabled:
+                logger.info("♻️  Поновлення роботи моторів після команди")
+                await self.motor_controller.enable_all()
+                self.motors_stopped = False
+                self.motors_disabled = False
+            
+            command_type = data.get('command')
+            
+            if command_type == 'move':
+                x = data.get('x', 0)
+                y = data.get('y', 0)
                 
-                # Відправляємо телеметрію
-                await self._send_telemetry({"x": x, "y": y})
+                # Розраховуємо швидкості моторів
+                left_speed, right_speed = self._calculate_motor_speeds(x, y)
+                
+                logger.debug(f"Команда руху: x={x}, y={y} -> left={left_speed}, right={right_speed}")
+                
+                # Відправляємо команди моторам
+                await self.motor_controller.set_motor_speeds(left_speed, right_speed)
+                
+            elif command_type == 'stop':
+                logger.info("Команда зупинки")
+                await self.motor_controller.stop_all()
                 
         except Exception as e:
             logger.error(f"Помилка обробки команди: {e}")
     
     def _calculate_motor_speeds(self, x, y):
-        """Розрахунок швидкостей моторів на основі координат джойстика"""
-        # Припускаємо, що x та y мають значення від -1 до 1
-        # Проста диференціальна схема керування для руху
-        left_speed = y + x
-        right_speed = y - x
+        """
+        Розраховує швидкості лівого та правого моторів на основі координат джойстика
+        x: -1.0 до 1.0 (ліво-право)
+        y: -1.0 до 1.0 (назад-вперед)
+        """
+        # Прямий рух/назад
+        forward = y
+        # Поворот
+        turn = x
         
-        # Обмежуємо швидкості в діапазоні від -1 до 1
-        left_speed = max(-1, min(1, left_speed))
-        right_speed = max(-1, min(1, right_speed))
+        # Розраховуємо швидкості для диференціального приводу
+        left_speed = forward + turn
+        right_speed = forward - turn
+        
+        # Обмежуємо значення до [-1.0, 1.0]
+        left_speed = max(-1.0, min(1.0, left_speed))
+        right_speed = max(-1.0, min(1.0, right_speed))
         
         return left_speed, right_speed
     
-    async def _handle_offer(self, data):
-        try:
-            # Створюємо нове RTCPeerConnection для WebRTC
-            self.pc = RTCPeerConnection()
-            
-            # Додаємо відеотрек
-            self.track = CameraVideoStreamTrack()
-            self.pc.addTrack(self.track)
-            
-            # Встановлюємо обробники подій
-            @self.pc.on("icecandidate")
-            async def on_icecandidate(candidate):
-                if candidate:
-                    candidate_json = {"candidate": candidate.candidate, 
-                                     "sdpMid": candidate.sdpMid,
-                                     "sdpMLineIndex": candidate.sdpMLineIndex}
-                    await self.socket.send(f"CANDIDATE!{json.dumps(candidate_json)}")
-            
-            # Розбираємо та встановлюємо SDP offer
-            offer = RTCSessionDescription(sdp=data["sdp"], type=data["type"])
-            await self.pc.setRemoteDescription(offer)
-            
-            # Створюємо та відправляємо SDP answer
-            answer = await self.pc.createAnswer()
-            await self.pc.setLocalDescription(answer)
-            
-            answer_json = {"sdp": self.pc.localDescription.sdp,
-                          "type": self.pc.localDescription.type}
-            await self.socket.send(f"ANSWER!{json.dumps(answer_json)}")
-        except Exception as e:
-            logger.error(f"Помилка обробки WebRTC offer: {e}")
-    
     async def _send_message(self, type, data):
-        message = json.dumps({"type": type, "data": data})
-        await self.socket.send(message)
+        """Відправити повідомлення на сервер"""
+        if self.socket and self.socket.open:
+            await self.socket.send(f"{type}!{json.dumps(data)}")
     
     async def _send_telemetry(self, data):
-        message = json.dumps({"type": "telemetry", "data": data})
-        await self.socket.send(message)
-    
-    def _setup_camera(self):
-        # Реалізація налаштування камери
-        pass
+        """Відправити телеметрію"""
+        await self._send_message("TELEMETRY", data)
     
     async def _cleanup(self):
-        # Реалізація очищення ресурсів
-        pass
+        """Очистити ресурси"""
+        logger.info("Очищення ресурсів")
+        await self._stop_motors()
 
 async def main():
-    parser = argparse.ArgumentParser(description="Клієнт робота для підключення до сервера керування")
-    parser.add_argument("--server", type=str, default="ws://193.169.240.11:8080",
-                       help="WebSocket URL сервера (за замовчуванням: ws://193.169.240.11:8080)")
-    parser.add_argument("--camera", type=int, default=0,
-                       help="Індекс USB-камери (за замовчуванням: 0)")
-    parser.add_argument("--use-motors", action="store_true",
-                       help="Увімкнути керування реальними моторами через GPIO")
-    parser.add_argument("--debug", action="store_true",
-                       help="Увімкнути детальне логування")
-    parser.add_argument("--timeout", type=float, default=2.0,
-                       help="Час очікування команд до зупинки моторів (секунди, за замовчуванням: 2.0)")
+    parser = argparse.ArgumentParser(description='Robot Client')
+    parser.add_argument('--server', '-s', default='ws://localhost:8080', help='WebSocket server URL')
+    parser.add_argument('--debug', '-d', action='store_true', help='Enable debug logging')
     
     args = parser.parse_args()
     
-    # Налаштовуємо рівень логування
     if args.debug:
-        logger.setLevel(logging.DEBUG)
-        # Додаємо форматування для відображення часу та рівня логу
-        handler = logging.StreamHandler()
-        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-        handler.setFormatter(formatter)
-        logger.handlers = [handler]
-        logger.debug("Увімкнено детальне логування")
+        logging.getLogger().setLevel(logging.DEBUG)
     
-    # Створюємо контролер моторів, якщо потрібно
+    # Ініціалізуємо контролер моторів
     motor_controller = None
-    if args.use_motors:
-        try:
-            from motor_controller import MotorController
-            motor_controller = MotorController()
-            logger.info("Ініціалізовано контролер моторів")
-        except Exception as e:
-            logger.error(f"Не вдалося ініціалізувати контролер моторів: {e}")
-    
-    # Створюємо та запускаємо клієнт робота
-    robot = RobotClient(args.server, motor_controller)
-    robot.command_timeout = args.timeout  # Встановлюємо таймаут з аргументів
     try:
-        await robot.connect()
+        # Імпортуємо та ініціалізуємо контролер моторів
+        from motor_controller import MotorController
+        motor_controller = MotorController()
+        await motor_controller.initialize()
+        logger.info("✅ Контролер моторів ініціалізовано")
+    except ImportError:
+        logger.warning("⚠️  Модуль motor_controller не знайдено - тестовий режим")
+    except Exception as e:
+        logger.error(f"❌ Помилка ініціалізації контролера моторів: {e}")
+    
+    # Створюємо клієнт робота
+    client = RobotClient(args.server, motor_controller)
+    
+    try:
+        await client.connect()
+    except KeyboardInterrupt:
+        logger.info("Отримано сигнал переривання")
+    except Exception as e:
+        logger.error(f"Помилка роботи клієнта: {e}")
     finally:
-        # Закриваємо ресурси при завершенні
         if motor_controller:
-            motor_controller.cleanup()
+            await motor_controller.cleanup()
 
 if __name__ == "__main__":
     asyncio.run(main()) 
