@@ -20,6 +20,9 @@ namespace Scripts.Services
         bool IsVideoConnected { get; }
         float CurrentFPS { get; }
         int ReceivedFrames { get; }
+        bool VideoReceived { get; }
+        int TotalMessages { get; }
+        int VideoMessages { get; }
         
         event Action<bool> OnVideoConnectionChanged;
         event Action<Texture2D> OnVideoFrameReceived;
@@ -28,6 +31,10 @@ namespace Scripts.Services
         void RequestVideoStream();
         void StopVideoStream();
         void SetVideoOutput(RawImage videoOutput);
+        void ResetStats();
+        void GetDetailedVideoStats(out bool videoReceived, out int totalMessages, out int videoMessages, out int invalidFrames);
+        string GetVideoStatusReport();
+        void ForceVideoStatusLog();
     }
     
     public class OptimizedRobotVideoService : MonoBehaviour, IOptimizedRobotVideoService
@@ -60,6 +67,15 @@ namespace Scripts.Services
         private Queue<float> _frameTimes = new Queue<float>();
         private int _droppedFrames = 0;
         
+        // Диагностика видео
+        private bool _videoReceived = false;
+        private float _firstFrameTime = 0f;
+        private float _lastVideoCheckTime = 0f;
+        private int _totalReceivedMessages = 0;
+        private int _videoFrameMessages = 0;
+        private int _invalidFrames = 0;
+        private float _videoCheckInterval = 2f;
+        
         // События
         public event Action<bool> OnVideoConnectionChanged;
         public event Action<Texture2D> OnVideoFrameReceived;
@@ -68,6 +84,9 @@ namespace Scripts.Services
         public bool IsVideoConnected => _isVideoStreaming;
         public float CurrentFPS => _currentFPS;
         public int ReceivedFrames => _receivedFrames;
+        public bool VideoReceived => _videoReceived;
+        public int TotalMessages => _totalReceivedMessages;
+        public int VideoMessages => _videoFrameMessages;
         
         public void Initialize(IWebSocketClient webSocketClient, IStatus status)
         {
@@ -95,6 +114,9 @@ namespace Scripts.Services
             
             _isInitialized = true;
             _status.Info("OptimizedRobotVideoService инициализирован");
+            
+            // Запускаем диагностику видео
+            StartVideoMonitoring();
         }
         
         public void SetVideoOutput(RawImage videoOutput)
@@ -174,11 +196,23 @@ namespace Scripts.Services
                 if (string.IsNullOrEmpty(message))
                     return;
                 
+                // Увеличиваем счетчик всех сообщений
+                _totalReceivedMessages++;
+                
                 // Обрабатываем видео кадры
                 if (message.StartsWith("VIDEO_FRAME!"))
                 {
+                    _videoFrameMessages++;
                     string jsonData = message.Substring(12); // Убираем "VIDEO_FRAME!"
+                    Debug.Log($"🎥 Получен VIDEO_FRAME! сообщение, длина JSON: {jsonData.Length}");
                     HandleVideoFrame(jsonData);
+                }
+                // Обрабатываем JSON видео кадры
+                else if (message.StartsWith("{") && message.Contains("video_frame"))
+                {
+                    _videoFrameMessages++;
+                    Debug.Log($"🎥 Получен JSON видео кадр, длина: {message.Length}");
+                    HandleVideoFrame(message);
                 }
                 // Обрабатываем регистрацию контроллера
                 else if (message == "REGISTERED!CONTROLLER")
@@ -205,6 +239,21 @@ namespace Scripts.Services
                     string errorMsg = message.Substring(12);
                     _status.Error($"Ошибка видео: {errorMsg}");
                 }
+                // Логируем все остальные сообщения для диагностики
+                else
+                {
+                    if (message.Length > 100)
+                    {
+                        Debug.Log($"📨 Получено длинное сообщение ({message.Length} символов): {message.Substring(0, 100)}...");
+                    }
+                    else
+                    {
+                        Debug.Log($"📨 Получено сообщение: {message}");
+                    }
+                }
+                
+                // Логируем диагностику каждые несколько секунд
+                CheckVideoReceptionStatus();
                 
             }
             catch (Exception ex)
@@ -222,6 +271,15 @@ namespace Scripts.Services
                 
                 if (frameData != null && !string.IsNullOrEmpty(frameData.data))
                 {
+                    // Отмечаем что получили первый видео кадр
+                    if (!_videoReceived)
+                    {
+                        _videoReceived = true;
+                        _firstFrameTime = Time.time;
+                        _status.Info("✅ ПЕРВЫЙ ВИДЕО КАДР ПОЛУЧЕН!");
+                        Debug.Log("🎥 Видео поток успешно получен от робота");
+                    }
+                    
                     // Обновляем статистику
                     UpdateFrameStats();
                     
@@ -242,9 +300,15 @@ namespace Scripts.Services
                         _status.Info("Видео поток активен");
                     }
                 }
+                else
+                {
+                    _invalidFrames++;
+                    _status.Warning($"Получен невалидный видео кадр (всего невалидных: {_invalidFrames})");
+                }
             }
             catch (Exception ex)
             {
+                _invalidFrames++;
                 _status.Error($"Ошибка декодирования видео кадра: {ex.Message}");
                 Debug.LogError($"Video frame decode error: {ex}");
             }
@@ -364,6 +428,57 @@ namespace Scripts.Services
             }
         }
         
+        private void StartVideoMonitoring()
+        {
+            _lastVideoCheckTime = Time.time;
+            InvokeRepeating(nameof(LogVideoStatus), 5f, 5f); // Каждые 5 секунд
+        }
+        
+        private void CheckVideoReceptionStatus()
+        {
+            float currentTime = Time.time;
+            
+            if (currentTime - _lastVideoCheckTime >= _videoCheckInterval)
+            {
+                _lastVideoCheckTime = currentTime;
+                
+                // Проверяем получаем ли мы видео
+                if (!_videoReceived && _totalReceivedMessages > 0)
+                {
+                    _status.Warning($"⚠️ Получено {_totalReceivedMessages} сообщений, но НЕТ ВИДЕО кадров!");
+                    Debug.LogWarning($"Video check: {_totalReceivedMessages} messages, {_videoFrameMessages} video frames");
+                }
+                else if (_videoReceived)
+                {
+                    float timeSinceFirstFrame = currentTime - _firstFrameTime;
+                    _status.Info($"✅ Видео активно: {_receivedFrames} кадров за {timeSinceFirstFrame:F1}с");
+                }
+            }
+        }
+        
+        private void LogVideoStatus()
+        {
+            string status = $"📊 ВИДЕО СТАТУС:\n" +
+                          $"• Получено сообщений: {_totalReceivedMessages}\n" +
+                          $"• Видео сообщений: {_videoFrameMessages}\n" +
+                          $"• Обработано кадров: {_receivedFrames}\n" +
+                          $"• Невалидных кадров: {_invalidFrames}\n" +
+                          $"• Пропущено кадров: {_droppedFrames}\n" +
+                          $"• Текущий FPS: {_currentFPS:F1}\n" +
+                          $"• Видео получено: {(_videoReceived ? "✅ ДА" : "❌ НЕТ")}";
+            
+            Debug.Log(status);
+            
+            if (_videoReceived)
+            {
+                _status.Info($"Видео: {_currentFPS:F1} FPS, {_receivedFrames} кадров");
+            }
+            else
+            {
+                _status.Warning("❌ ВИДЕО НЕ ПОЛУЧЕНО!");
+            }
+        }
+        
         private IEnumerator VideoUpdateLoop()
         {
             while (true)
@@ -378,6 +493,7 @@ namespace Scripts.Services
                     {
                         _status.Warning("Видео поток прерван - нет кадров более 5 секунд");
                         _isVideoStreaming = false;
+                        _videoReceived = false;
                         OnVideoConnectionChanged?.Invoke(false);
                     }
                 }
@@ -392,6 +508,9 @@ namespace Scripts.Services
             {
                 StopCoroutine(_videoUpdateCoroutine);
             }
+            
+            // Останавливаем мониторинг
+            CancelInvoke(nameof(LogVideoStatus));
             
             // Освобождаем текстуры
             if (_currentTexture != null)
@@ -422,13 +541,45 @@ namespace Scripts.Services
             dropped = _droppedFrames;
         }
         
+        public void GetDetailedVideoStats(out bool videoReceived, out int totalMessages, out int videoMessages, out int invalidFrames)
+        {
+            videoReceived = _videoReceived;
+            totalMessages = _totalReceivedMessages;
+            videoMessages = _videoFrameMessages;
+            invalidFrames = _invalidFrames;
+        }
+        
+        public string GetVideoStatusReport()
+        {
+            return $"📊 ОТЧЕТ О ВИДЕО:\n" +
+                   $"🔌 Подключено: {(_isVideoStreaming ? "ДА" : "НЕТ")}\n" +
+                   $"🎥 Видео получено: {(_videoReceived ? "ДА" : "НЕТ")}\n" +
+                   $"📨 Всего сообщений: {_totalReceivedMessages}\n" +
+                   $"🎬 Видео сообщений: {_videoFrameMessages}\n" +
+                   $"✅ Обработано кадров: {_receivedFrames}\n" +
+                   $"❌ Невалидных кадров: {_invalidFrames}\n" +
+                   $"⏭️ Пропущено кадров: {_droppedFrames}\n" +
+                   $"📊 Текущий FPS: {_currentFPS:F1}\n" +
+                   $"⏱️ Время с первого кадра: {(_videoReceived ? (Time.time - _firstFrameTime).ToString("F1") + "с" : "N/A")}";
+        }
+        
+        public void ForceVideoStatusLog()
+        {
+            LogVideoStatus();
+        }
+        
         public void ResetStats()
         {
             _receivedFrames = 0;
             _droppedFrames = 0;
+            _invalidFrames = 0;
             _fpsCounter = 0;
             _lastFPSTime = Time.time;
             _frameTimes.Clear();
+            _totalReceivedMessages = 0;
+            _videoFrameMessages = 0;
+            _videoReceived = false;
+            _firstFrameTime = 0f;
         }
         
         // Методы для настройки производительности

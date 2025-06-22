@@ -19,13 +19,13 @@ from concurrent.futures import ThreadPoolExecutor
 import gc
 
 # Настройка логирования
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("robot_video")
 
 class OptimizedVideoStreamer:
     """Оптимизированный видео стример без WebRTC"""
     
-    def __init__(self, camera_index=0, test_mode=False, quality=75, fps=15, resolution=(640, 480)):
+    def __init__(self, camera_index=0, test_mode=False, quality=60, fps=30, resolution=(480, 360)):
         self.camera_index = camera_index
         self.test_mode = test_mode
         self.quality = quality  # JPEG качество (0-100)
@@ -35,7 +35,7 @@ class OptimizedVideoStreamer:
         self.camera = None
         self.frame_count = 0
         self.is_streaming = False
-        self.frame_queue = queue.Queue(maxsize=2)  # Небольшая очередь
+        self.frame_queue = queue.Queue(maxsize=1)  # Минимальная очередь для низкой задержки
         self.stop_event = Event()
         
         # Пул потоков для обработки
@@ -48,41 +48,95 @@ class OptimizedVideoStreamer:
         
         self._initialize_camera()
     
+    def _test_camera_read_with_timeout(self, timeout=3.0):
+        """Тестирование чтения кадра с таймаутом"""
+        def read_frame():
+            try:
+                ret, frame = self.camera.read()
+                return ret, frame
+            except Exception as e:
+                logger.error(f"Ошибка чтения кадра: {e}")
+                return False, None
+        
+        try:
+            future = self.executor.submit(read_frame)
+            ret, frame = future.result(timeout=timeout)
+            return ret, frame
+        except Exception as e:
+            logger.warning(f"⏰ Таймаут тестирования камеры ({timeout}s): {e}")
+            return False, None
+    
     def _initialize_camera(self):
         """Инициализация камеры"""
+        # ВРЕМЕННОЕ РЕШЕНИЕ: Принудительный тестовый режим для отладки зависания (ОТКЛЮЧЕН)
+        # logger.info("🧪 ПРИНУДИТЕЛЬНЫЙ ТЕСТОВЫЙ РЕЖИМ (для отладки зависания камеры)")
+        # self.test_mode = True
+        # return
+        
         if self.test_mode:
             logger.info("Запуск в тестовом режиме")
             return
             
+        logger.info(f"Попытка инициализации камеры {self.camera_index}...")
+        
         for attempt in range(3):
             try:
+                logger.info(f"Попытка {attempt + 1}/3 инициализации камеры")
+                
+                # Создаем камеру с таймаутом
                 self.camera = cv2.VideoCapture(self.camera_index)
+                
+                # Проверяем открытие с таймаутом
                 if self.camera.isOpened():
-                    # Настройки камеры
+                    # Настройки камеры для минимальной задержки
                     self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, self.resolution[0])
                     self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, self.resolution[1])
                     self.camera.set(cv2.CAP_PROP_FPS, self.fps)
-                    self.camera.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                    self.camera.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Минимальный буфер
+                    self.camera.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'))  # MJPEG для скорости
                     
-                    logger.info(f"Камера {self.camera_index} инициализирована")
-                    return
-                else:
-                    if self.camera:
-                        self.camera.release()
-                        self.camera = None
+                    # Проверяем чтение кадра с таймаутом
+                    logger.info("🧪 Тестируем чтение кадра (с таймаутом 3с)...")
+                    ret, test_frame = self._test_camera_read_with_timeout(timeout=2.0)  # Быстрее инициализация
+                    logger.info(f"🧪 Тест чтения завершен: ret={ret}")
+                    
+                    if ret and test_frame is not None:
+                        logger.info(f"✅ Камера {self.camera_index} успешно инициализирована")
+                        logger.info(f"Разрешение: {test_frame.shape[1]}x{test_frame.shape[0]}")
+                        return
+                    else:
+                        logger.warning(f"⚠️ Камера открылась, но не может читать кадры")
                         
-            except Exception as e:
-                logger.error(f"Ошибка камеры: {e}")
                 if self.camera:
                     self.camera.release()
                     self.camera = None
+                        
+            except Exception as e:
+                logger.error(f"❌ Ошибка инициализации камеры (попытка {attempt + 1}): {e}")
+                if self.camera:
+                    try:
+                        self.camera.release()
+                    except:
+                        pass
+                    self.camera = None
                     
             if attempt < 2:
-                time.sleep(1)
+                logger.info(f"Пауза перед следующей попыткой...")
+                time.sleep(2)
         
-        logger.warning("Переход в тестовый режим")
+        logger.warning("❌ Не удалось инициализировать камеру. Переход в тестовый режим")
         self.test_mode = True
         self.camera = None
+        
+        # ВРЕМЕННОЕ РЕШЕНИЕ: Принудительно включаем тестовый режим (ОТКЛЮЧЕН)
+        # logger.info("🧪 ПРИНУДИТЕЛЬНЫЙ ТЕСТОВЫЙ РЕЖИМ для отладки")
+        # self.test_mode = True
+        # if self.camera:
+        #     try:
+        #         self.camera.release()
+        #     except:
+        #         pass
+        #     self.camera = None
     
     def _create_test_frame(self):
         """Создание тестового кадра"""
@@ -109,11 +163,20 @@ class OptimizedVideoStreamer:
         if self.test_mode or not self.camera or not self.camera.isOpened():
             return self._create_test_frame()
         
-        ret, frame = self.camera.read()
-        if not ret:
+        try:
+            logger.debug("📷 Вызываем camera.read() с таймаутом...")
+            ret, frame = self._test_camera_read_with_timeout(timeout=0.5)  # Быстрее захват кадров
+            logger.debug(f"📷 camera.read() завершен: ret={ret}, frame={'OK' if frame is not None else 'None'}")
+            
+            if not ret or frame is None:
+                logger.debug("Не удалось прочитать кадр с камеры, используем тестовый")
+                return self._create_test_frame()
+            
+            return frame
+            
+        except Exception as e:
+            logger.error(f"Ошибка захвата кадра: {e}")
             return self._create_test_frame()
-        
-        return frame
     
     def _encode_frame(self, frame):
         """Кодирование в JPEG"""
@@ -132,31 +195,60 @@ class OptimizedVideoStreamer:
     
     def _frame_capture_loop(self):
         """Цикл захвата кадров"""
+        logger.info("🎥 Поток захвата кадров запущен")
+        
         frame_interval = 1.0 / self.fps
         last_frame_time = 0
+        capture_count = 0
         
         while not self.stop_event.is_set() and self.is_streaming:
             current_time = time.time()
             
             if current_time - last_frame_time >= frame_interval:
                 try:
+                    capture_count += 1
+                    
+                    # Логируем каждые 30 кадров (и первые 3 кадра для отладки)
+                    if capture_count % 30 == 1 or capture_count <= 3:
+                        logger.info(f"🎬 Захват кадров: #{capture_count}, FPS: {self.actual_fps:.1f}")
+                    
+                    logger.debug(f"🎥 Захватываем кадр #{capture_count}...")
                     frame = self._capture_frame()
+                    logger.debug(f"🎥 Кадр #{capture_count} захвачен: {frame is not None}")
+                    if frame is None:
+                        logger.warning("⚠️ Не удалось захватить кадр")
+                        continue
+                        
+                    logger.debug(f"🎨 Кодируем кадр #{capture_count}...")
                     encoded_frame = self._encode_frame(frame)
+                    logger.debug(f"🎨 Кадр #{capture_count} закодирован: {encoded_frame is not None}")
                     
                     if encoded_frame:
                         try:
-                            self.frame_queue.put_nowait({
+                            frame_data = {
                                 'type': 'video_frame',
                                 'data': encoded_frame,
                                 'timestamp': current_time,
                                 'frame_number': self.frame_count
-                            })
+                            }
+                            
+                            # Очищаем очередь для минимальной задержки
+                            try:
+                                self.frame_queue.get_nowait()  # Удаляем старый кадр
+                            except queue.Empty:
+                                pass
+                            
+                            self.frame_queue.put_nowait(frame_data)
                             
                             self.frame_count += 1
                             self.fps_counter += 1
                             
+                            logger.debug(f"🎬 Кадр #{self.frame_count} добавлен в очередь")
+                            
                         except queue.Full:
-                            pass  # Пропускаем кадр
+                            logger.debug("📦 Очередь кадров полная, пропускаем кадр")
+                    else:
+                        logger.warning("⚠️ Не удалось закодировать кадр")
                     
                     last_frame_time = current_time
                     
@@ -167,29 +259,50 @@ class OptimizedVideoStreamer:
                         self.last_fps_time = current_time
                         
                 except Exception as e:
-                    logger.error(f"Ошибка захвата: {e}")
+                    logger.error(f"❌ Ошибка захвата кадра #{capture_count}: {e}")
                     time.sleep(0.1)
             else:
-                time.sleep(0.001)
+                time.sleep(0.0001)  # Уменьшаем задержку для более быстрой реакции
+        
+        logger.info("🛑 Поток захвата кадров завершен")
     
     def start_streaming(self):
         """Запуск стриминга"""
         if self.is_streaming:
+            logger.info("Видео стриминг уже запущен")
             return
             
+        logger.info("🎬 Запуск видео стриминга...")
         self.is_streaming = True
         self.stop_event.clear()
         
         # Очистка очереди
+        queue_size = self.frame_queue.qsize()
+        if queue_size > 0:
+            logger.info(f"🗑️ Очистка очереди кадров ({queue_size} кадров)")
+            
         while not self.frame_queue.empty():
             try:
                 self.frame_queue.get_nowait()
             except queue.Empty:
                 break
         
+        # Запуск потока захвата
+        logger.info("🎥 Запуск потока захвата кадров...")
         self.capture_thread = Thread(target=self._frame_capture_loop, daemon=True)
         self.capture_thread.start()
         
+        # Проверяем, что поток запустился
+        logger.info("⏳ Ожидание запуска потока захвата...")
+        time.sleep(0.01)  # Уменьшаем задержку запуска
+        logger.info("⏳ Проверка состояния потока...")
+        
+        if self.capture_thread.is_alive():
+            logger.info("✅ Поток захвата кадров успешно запущен")
+        else:
+            logger.error("❌ Не удалось запустить поток захвата кадров")
+        
+        logger.info("📋 Завершение функции start_streaming...")
         logger.info("Видео стриминг запущен")
     
     def stop_streaming(self):
@@ -215,8 +328,14 @@ class OptimizedVideoStreamer:
     def get_frame(self):
         """Получение кадра"""
         try:
-            return self.frame_queue.get_nowait()
+            frame_data = self.frame_queue.get_nowait()
+            logger.debug(f"🎬 Получен кадр из очереди: #{frame_data.get('frame_number', '?')}")
+            return frame_data
         except queue.Empty:
+            logger.debug("📭 Очередь кадров пуста")
+            return None
+        except Exception as e:
+            logger.error(f"❌ Ошибка получения кадра: {e}")
             return None
     
     def cleanup(self):
@@ -240,9 +359,9 @@ class OptimizedRobotClient:
         
         # Видео конфигурация
         video_config = video_config or {}
-        self.video_quality = video_config.get('quality', 75)
-        self.video_fps = video_config.get('fps', 15)
-        self.video_resolution = video_config.get('resolution', (640, 480))
+        self.video_quality = video_config.get('quality', 60)  # Понижаем качество для скорости
+        self.video_fps = video_config.get('fps', 30)  # Повышаем FPS для плавности
+        self.video_resolution = video_config.get('resolution', (480, 360))  # Уменьшаем разрешение для скорости
         self.test_video_mode = video_config.get('test_mode', False)
         self.camera_index = video_config.get('camera_index', 0)
         
@@ -273,32 +392,97 @@ class OptimizedRobotClient:
                 self._initialize_video_streamer()
                 
                 await self.socket.send("REGISTER!ROBOT")
+                logger.info("Зарегистрирован как ROBOT")
                 
-                # Основной цикл
+                # Запускаем видео стриминг автоматически
+                await self._start_video_streaming()
+                logger.info("Видео стриминг запущен автоматически")
+                
+                # Запускаем задачу отправки видео
+                logger.info("🚀 Создаем задачу отправки видео...")
+                try:
+                    video_task = asyncio.create_task(self._video_send_loop())
+                    logger.info("✅ Задача отправки видео создана")
+                except Exception as e:
+                    logger.error(f"❌ Ошибка создания задачи видео: {e}")
+                    import traceback
+                    logger.error(f"Трассировка: {traceback.format_exc()}")
+                    raise
+                
+                # Даем время задаче запуститься
+                logger.info("⏳ Ожидание запуска задачи видео (sleep 0.01)...")
+                await asyncio.sleep(0.01)  # Минимальная задержка
+                logger.info("⏳ Проверка состояния задачи видео...")
+                
+                # Проверяем состояние задачи
+                if video_task.done():
+                    logger.error("❌ Задача видео завершилась преждевременно!")
+                    try:
+                        result = video_task.result()
+                        logger.info(f"Результат задачи: {result}")
+                    except Exception as e:
+                        logger.error(f"❌ Исключение в задаче видео: {e}")
+                        import traceback
+                        logger.error(f"Трассировка: {traceback.format_exc()}")
+                else:
+                    logger.info("✅ Задача видео работает")
+                
+                # Основной цикл обработки сообщений
+                logger.info("🔄 Запуск основного цикла обработки сообщений")
+                message_count = 0
+                
+                timeout_count = 0
+                
                 while True:
                     try:
-                        message = await asyncio.wait_for(self.socket.recv(), timeout=0.1)
+                        logger.debug(f"🎧 Ожидание сообщения (таймаут #{timeout_count})...")
+                        message = await asyncio.wait_for(self.socket.recv(), timeout=0.1)  # Быстрее реакция на сообщения
+                        message_count += 1
+                        timeout_count = 0  # Сбрасываем счетчик таймаутов
+                        
+                        logger.debug(f"📨 Получено сообщение #{message_count}: {message[:50]}...")
+                        
+                        if message_count % 100 == 0:
+                            logger.info(f"📨 Обработано сообщений: {message_count}")
+                        
                         await self._handle_message(message)
                         
                     except asyncio.TimeoutError:
-                        await self._send_video_frame()
+                        timeout_count += 1
+                        if timeout_count % 50 == 0:  # Каждые 5 секунд (50 * 0.1s)
+                            logger.info(f"⏰ Таймаут ожидания сообщений: {timeout_count/10:.1f} секунд")
+                        # Это нормально - просто продолжаем цикл
+                        continue
                         
                     except websockets.exceptions.ConnectionClosed:
-                        logger.warning("Соединение закрыто")
+                        logger.warning("🔌 Соединение закрыто сервером")
                         break
                         
                     except Exception as e:
-                        logger.error(f"Ошибка обработки: {e}")
+                        logger.error(f"❌ Ошибка в основном цикле: {e}")
+                        break
                         
         except Exception as e:
             logger.error(f"Ошибка подключения: {e}")
         finally:
             self.is_connection_active = False
+            
+            # Останавливаем все задачи
             safety_task.cancel()
+            if 'video_task' in locals():
+                video_task.cancel()
+            
             try:
                 await safety_task
             except asyncio.CancelledError:
                 pass
+                
+            try:
+                if 'video_task' in locals():
+                    await video_task
+            except asyncio.CancelledError:
+                pass
+                
             await self._cleanup()
     
     def _initialize_video_streamer(self):
@@ -315,18 +499,108 @@ class OptimizedRobotClient:
         except Exception as e:
             logger.error(f"Ошибка видео стримера: {e}")
     
+    async def _video_send_loop(self):
+        """Отдельный цикл для отправки видео"""
+        logger.info("🎬 ВХОД в функцию _video_send_loop")
+        
+        try:
+            logger.info("Запуск цикла отправки видео")
+            
+            frame_send_timeout = 2.0  # Таймаут отправки кадра
+            last_successful_send = time.time()
+            consecutive_errors = 0
+            max_consecutive_errors = 10
+            loop_count = 0
+            
+            logger.info("🔄 Входим в цикл отправки видео...")
+            logger.info(f"🔗 Состояние подключения: {self.is_connection_active}")
+            
+            while self.is_connection_active:
+                try:
+                    loop_count += 1
+                    
+                    # Логируем каждые 30 итераций (примерно каждые 2 секунды)
+                    if loop_count % 30 == 1:
+                        logger.info(f"🔄 Цикл видео: итерация {loop_count}, ошибок подряд: {consecutive_errors}")
+                    
+                    # Проверяем таймаут отправки
+                    current_time = time.time()
+                    if current_time - last_successful_send > frame_send_timeout:
+                        logger.warning(f"⚠️ Таймаут отправки видео: {current_time - last_successful_send:.1f}s")
+                        last_successful_send = current_time
+                    
+                    # Отправляем кадр
+                    success = await self._send_video_frame()
+                    if success:
+                        last_successful_send = current_time
+                        consecutive_errors = 0
+                    else:
+                        consecutive_errors += 1
+                    
+                    # Проверяем количество ошибок подряд
+                    if consecutive_errors >= max_consecutive_errors:
+                        logger.error(f"❌ Слишком много ошибок отправки видео подряд: {consecutive_errors}")
+                        await asyncio.sleep(1.0)  # Уменьшаем паузу при ошибках
+                        consecutive_errors = 0
+                    
+                    await asyncio.sleep(1/30)  # 30 FPS для более плавного видео
+                    
+                except Exception as e:
+                    logger.error(f"❌ Ошибка в цикле видео (итерация {loop_count}): {e}")
+                    consecutive_errors += 1
+                    await asyncio.sleep(0.1)  # Быстрее восстановление после ошибок
+            
+        except Exception as e:
+            logger.error(f"❌ КРИТИЧЕСКАЯ ошибка в _video_send_loop: {e}")
+            import traceback
+            logger.error(f"Трассировка: {traceback.format_exc()}")
+        
+        logger.info("🛑 Цикл отправки видео завершен")
+    
     async def _send_video_frame(self):
         """Отправка видео кадра"""
-        if not self.video_streamer or not self.video_streamer.is_streaming:
-            return
+        try:
+            # Проверяем видео стример
+            if not self.video_streamer:
+                logger.debug("Видео стример не инициализирован")
+                return False
+                
+            if not self.video_streamer.is_streaming:
+                logger.debug("Видео стриминг не активен")
+                return False
             
-        frame_data = self.video_streamer.get_frame()
-        if frame_data and self.socket:
+            # Получаем кадр
+            frame_data = self.video_streamer.get_frame()
+            if not frame_data:
+                logger.debug("Нет кадров для отправки")
+                return False
+                
+            # Проверяем сокет
+            if not self.socket:
+                logger.debug("WebSocket не подключен")
+                return False
+            
+            # Подготавливаем сообщение
             try:
                 message = f"VIDEO_FRAME!{json.dumps(frame_data)}"
-                await self.socket.send(message)
-            except Exception as e:
-                logger.error(f"Ошибка отправки кадра: {e}")
+                message_size = len(message)
+                
+                # Отправляем с минимальным таймаутом
+                await asyncio.wait_for(self.socket.send(message), timeout=0.5)
+                
+                logger.debug(f"📤 Отправлен кадр #{frame_data.get('frame_number', '?')} ({message_size} байт)")
+                return True
+                
+            except json.JSONEncodeError as e:
+                logger.error(f"❌ Ошибка JSON кодирования: {e}")
+                return False
+            
+        except asyncio.TimeoutError:
+            logger.warning("⏰ Таймаут отправки кадра")
+            return False
+        except Exception as e:
+            logger.error(f"❌ Ошибка отправки кадра: {e}")
+            return False
     
     async def _handle_message(self, message):
         """Обработка сообщений"""
@@ -358,11 +632,17 @@ class OptimizedRobotClient:
         """Запуск видео"""
         if self.video_streamer:
             self.video_streamer.start_streaming()
+            logger.info("🎥 Видео стриминг ЗАПУЩЕН")
+        else:
+            logger.error("❌ Видео стример не найден!")
     
     async def _stop_video_streaming(self):
         """Остановка видео"""
         if self.video_streamer:
             self.video_streamer.stop_streaming()
+            logger.info("🛑 Видео стриминг ОСТАНОВЛЕН")
+        else:
+            logger.error("❌ Видео стример не найден!")
     
     async def _handle_command(self, data):
         """Обработка команд"""
@@ -416,7 +696,7 @@ class OptimizedRobotClient:
                     self.motors_stopped = False
                     self.motors_disabled = False
                 
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(0.1)  # Быстрее проверки безопасности
                 
             except Exception as e:
                 logger.error(f"Ошибка безопасности: {e}")
