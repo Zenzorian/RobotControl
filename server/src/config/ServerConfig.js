@@ -11,10 +11,6 @@ class ServerConfig {
     return 10000; // 10 секунд
   }
 
-  static get VIDEO_FRAME_LOG_INTERVAL() {
-    return 30; // Логировать каждый 30-й кадр
-  }
-
   static get FPS_UPDATE_INTERVAL() {
     return 1000; // 1 секунда
   }

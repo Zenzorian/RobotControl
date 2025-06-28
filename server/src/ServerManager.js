@@ -1,12 +1,13 @@
 const http = require('http');
 const express = require('express');
 const path = require('path');
+const fs = require('fs');
 
 // Импорт конфигурации и сервисов
 const ServerConfig = require('./config/ServerConfig');
 const ClientManagerService = require('./services/ClientManagerService');
-const VideoStatsService = require('./services/VideoStatsService');
 const WebSocketService = require('./services/WebSocketService');
+const WebRTCSignalingService = require('./services/WebRTCSignalingService');
 const MessageHandler = require('./handlers/MessageHandler');
 const ApiRoutes = require('./routes/ApiRoutes');
 
@@ -16,33 +17,57 @@ class ServerManager {
     this.app = express();
     this.server = http.createServer(this.app);
     
+    // Проверка WebRTC конфигурации
+    this.webrtcConfig = this.loadWebRTCConfig();
+    
     // Инициализация сервисов
     this.initializeServices();
     this.setupExpress();
     this.setupGracefulShutdown();
+    this.startCleanupTimer();
+  }
+
+  loadWebRTCConfig() {
+    try {
+      const configPath = path.join(__dirname, 'config/webrtc-config.json');
+      if (fs.existsSync(configPath)) {
+        return JSON.parse(fs.readFileSync(configPath, 'utf8'));
+      }
+    } catch (error) {
+      console.log('⚠️ Не удалось загрузить конфигурацию WebRTC, используем только сигналинг');
+    }
+    
+    return {
+      available: false,
+      signalingOnly: true
+    };
   }
 
   initializeServices() {
     // Создание сервисов в правильном порядке зависимостей
     this.clientManager = new ClientManagerService();
-    this.videoStatsService = new VideoStatsService();
     
-    // MessageHandler зависит от clientManager и videoStatsService
-    this.messageHandler = new MessageHandler(this.clientManager, this.videoStatsService);
+    // WebRTC Signaling Service
+    this.webrtcSignalingService = new WebRTCSignalingService(this.clientManager);
+    
+    // MessageHandler зависит от clientManager и webrtcSignalingService
+    this.messageHandler = new MessageHandler(
+      this.clientManager,
+      this.webrtcSignalingService
+    );
     
     // WebSocketService зависит от всех предыдущих сервисов
     this.webSocketService = new WebSocketService(
       this.server, 
       this.clientManager, 
-      this.messageHandler, 
-      this.videoStatsService
+      this.messageHandler
     );
     
     // API роуты зависят от всех сервисов
     this.apiRoutes = new ApiRoutes(
       this.clientManager, 
-      this.videoStatsService, 
-      this.webSocketService
+      this.webSocketService,
+      this.webrtcSignalingService
     );
   }
 
@@ -98,6 +123,15 @@ class ServerManager {
     });
   }
 
+  startCleanupTimer() {
+    // Очистка старых WebRTC сессий каждые 5 минут
+    setInterval(() => {
+      if (this.webrtcSignalingService) {
+        this.webrtcSignalingService.cleanup();
+      }
+    }, 5 * 60 * 1000);
+  }
+
   start() {
     return new Promise((resolve, reject) => {
       this.server.listen(this.port, (error) => {
@@ -106,11 +140,21 @@ class ServerManager {
           return;
         }
         
-        console.log(`🚀 Оптимизированный сервер запущен на порту ${this.port}`);
+        console.log(`🚀 WebRTC Сигналинг Сервер запущен на порту ${this.port}`);
         console.log(`📊 Статистика: http://localhost:${this.port}/api/status`);
-        console.log(`🎥 Протокол видео: MJPEG over WebSocket`);
-        console.log(`⚡ Оптимизации: Низкая задержка, эффективная память`);
-        console.log(`🏗️  Архитектура: SOLID принципы, модульная структура`);
+        
+        // Информация о протоколах
+        if (this.webrtcConfig.available) {
+          console.log(`🎥 Протокол видео: WebRTC (полная поддержка)`);
+          console.log(`📡 WebRTC библиотека: ${this.webrtcConfig.library?.name || 'wrtc'}`);
+        } else {
+          console.log(`🎥 Протокол видео: WebRTC (только сигналинг)`);
+          console.log(`📡 WebRTC сигналинг: Активен`);
+        }
+        
+        console.log(`⚡ Функции: WebRTC сигналинг, командное управление`);
+        console.log(`🏗️  Архитектура: SOLID принципы + WebRTC сигналинг`);
+        console.log(`🌐 WebRTC сессии: http://localhost:${this.port}/api/webrtc/stats`);
         
         resolve();
       });
@@ -148,12 +192,12 @@ class ServerManager {
     return this.clientManager;
   }
 
-  getVideoStatsService() {
-    return this.videoStatsService;
-  }
-
   getWebSocketService() {
     return this.webSocketService;
+  }
+
+  getWebRTCSignalingService() {
+    return this.webrtcSignalingService;
   }
 }
 

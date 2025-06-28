@@ -2,11 +2,10 @@ const WebSocket = require('ws');
 const ServerConfig = require('../config/ServerConfig');
 
 class WebSocketService {
-  constructor(server, clientManager, messageHandler, videoStatsService) {
+  constructor(server, clientManager, messageHandler) {
     this.wss = new WebSocket.Server({ server });
     this.clientManager = clientManager;
     this.messageHandler = messageHandler;
-    this.videoStatsService = videoStatsService;
     
     this.setupWebSocketServer();
     this.startHealthCheck();
@@ -57,11 +56,13 @@ class WebSocketService {
   }
 
   handleDisconnection(ws) {
-    this.clientManager.unregisterClient(ws);
-    
-    if (ws.clientType === 'robot') {
-      this.videoStatsService.stopStreaming();
+    // Уведомляем MessageHandler об отключении для WebRTC
+    if (this.messageHandler.handleClientDisconnection) {
+      this.messageHandler.handleClientDisconnection(ws);
     }
+    
+    // Стандартная обработка отключения
+    this.clientManager.unregisterClient(ws);
   }
 
   setupMessageHandler(ws) {
@@ -73,14 +74,6 @@ class WebSocketService {
   startHealthCheck() {
     // Мониторинг соединений
     setInterval(() => {
-      const activeConnections = Array.from(this.wss.clients).filter(
-        client => client.readyState === WebSocket.OPEN
-      ).length;
-      
-      if (activeConnections === 0) {
-        this.videoStatsService.stopStreaming();
-      }
-      
       // Ping активных клиентов
       this.wss.clients.forEach((client) => {
         if (client.readyState === WebSocket.OPEN) {

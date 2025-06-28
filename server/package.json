@@ -1,18 +1,20 @@
 {
   "name": "robot-control-server",
-  "version": "2.0.0",
-  "description": "WebSocket server for robot control with optimized video (SOLID architecture)",
+  "version": "2.1.0",
+  "description": "WebSocket server for robot control with WebRTC video signaling (SOLID architecture)",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
     "test": "jest src/tests/",
     "test:watch": "jest src/tests/ --watch",
-    "test:coverage": "jest src/tests/ --coverage"
+    "test:coverage": "jest src/tests/ --coverage",
+    "postinstall": "node scripts/check-webrtc.js"
   },
   "dependencies": {
     "express": "^4.21.2",
-    "ws": "^8.18.0"
+    "ws": "^8.18.0",
+    "uuid": "^9.0.1"
   },
   "devDependencies": {
     "nodemon": "^3.1.10",
@@ -28,7 +30,7 @@
     "coverageDirectory": "coverage",
     "coverageReporters": ["text", "lcov", "html"]
   },
-  "keywords": ["websocket", "robot", "control", "video", "optimized"],
+  "keywords": ["websocket", "robot", "control", "video", "webrtc", "signaling", "optimized"],
   "author": "Your Name",
   "license": "MIT"
 } 

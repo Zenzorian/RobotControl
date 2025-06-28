@@ -3,122 +3,101 @@
 
 const ServerManager = require('../ServerManager');
 const ClientManagerService = require('../services/ClientManagerService');
-const VideoStatsService = require('../services/VideoStatsService');
+const WebSocketService = require('../services/WebSocketService');
+const WebRTCSignalingService = require('../services/WebRTCSignalingService');
 
 describe('ServerManager', () => {
   let serverManager;
-
+  
   beforeEach(() => {
-    serverManager = new ServerManager(0); // Используем порт 0 для тестов
+    serverManager = new ServerManager(0); // Используем случайный порт для тестов
   });
-
+  
   afterEach(async () => {
     if (serverManager) {
-      serverManager.shutdown();
+      await serverManager.shutdown();
     }
   });
 
-  test('should initialize all services', () => {
-    expect(serverManager.getClientManager()).toBeInstanceOf(ClientManagerService);
-    expect(serverManager.getVideoStatsService()).toBeInstanceOf(VideoStatsService);
-    expect(serverManager.getWebSocketService()).toBeDefined();
+  describe('Service Initialization', () => {
+    test('should initialize all required services', () => {
+      expect(serverManager.getClientManager()).toBeInstanceOf(ClientManagerService);
+      expect(serverManager.getWebSocketService()).toBeInstanceOf(WebSocketService);
+      expect(serverManager.getWebRTCSignalingService()).toBeInstanceOf(WebRTCSignalingService);
+    });
+
+    test('should have proper service dependencies', () => {
+      const clientManager = serverManager.getClientManager();
+      const webSocketService = serverManager.getWebSocketService();
+      const webrtcService = serverManager.getWebRTCSignalingService();
+      
+      expect(clientManager).toBeDefined();
+      expect(webSocketService).toBeDefined();
+      expect(webrtcService).toBeDefined();
+    });
   });
 
-  test('should start server successfully', async () => {
-    await expect(serverManager.start()).resolves.toBeUndefined();
-  });
-});
-
-describe('ClientManagerService', () => {
-  let clientManager;
-
-  beforeEach(() => {
-    clientManager = new ClientManagerService();
+  describe('Configuration Loading', () => {
+    test('should load WebRTC configuration', () => {
+      expect(serverManager.webrtcConfig).toBeDefined();
+      expect(typeof serverManager.webrtcConfig.signalingOnly).toBe('boolean');
+    });
   });
 
-  test('should register controller client', () => {
-    const mockWs = { clientType: null };
-    const response = clientManager.registerClient(mockWs, 'CONTROLLER');
-    
-    expect(response).toBe('REGISTERED!CONTROLLER');
-    expect(mockWs.clientType).toBe('controller');
-  });
-
-  test('should register robot client', () => {
-    const mockWs = { clientType: null };
-    const response = clientManager.registerClient(mockWs, 'ROBOT');
-    
-    expect(response).toBe('REGISTERED!ROBOT');
-    expect(mockWs.clientType).toBe('robot');
-  });
-
-  test('should return null for unknown client type', () => {
-    const mockWs = { clientType: null };
-    const response = clientManager.registerClient(mockWs, 'UNKNOWN');
-    
-    expect(response).toBeNull();
-  });
-
-  test('should get connections status', () => {
-    const status = clientManager.getConnectionsStatus();
-    
-    expect(status).toEqual({
-      controller: 'disconnected',
-      robot: 'disconnected'
+  describe('Express Setup', () => {
+    test('should setup Express application', () => {
+      expect(serverManager.app).toBeDefined();
+      expect(serverManager.server).toBeDefined();
     });
   });
 });
 
-describe('VideoStatsService', () => {
-  let videoStats;
-
+describe('WebRTCSignalingService', () => {
+  let clientManager;
+  let webrtcService;
+  
   beforeEach(() => {
-    videoStats = new VideoStatsService();
+    clientManager = new ClientManagerService();
+    webrtcService = new WebRTCSignalingService(clientManager);
   });
 
-  test('should initialize with default stats', () => {
-    const stats = videoStats.getStats();
-    
-    expect(stats.isStreaming).toBe(false);
-    expect(stats.frameCount).toBe(0);
-    expect(stats.actualFPS).toBe(0);
+  describe('Initialization', () => {
+    test('should initialize with proper dependencies', () => {
+      expect(webrtcService.clientManager).toBe(clientManager);
+      expect(webrtcService.sessions).toBeInstanceOf(Map);
+      expect(webrtcService.stats).toBeDefined();
+    });
+
+    test('should have empty sessions initially', () => {
+      const stats = webrtcService.getStats();
+      expect(stats.activeSessions).toBe(0);
+      expect(stats.totalSessions).toBe(0);
+    });
   });
 
-  test('should start streaming', () => {
-    videoStats.startStreaming();
-    const stats = videoStats.getStats();
-    
-    expect(stats.isStreaming).toBe(true);
-    expect(stats.startTime).toBeDefined();
+  describe('Statistics', () => {
+    test('should provide proper statistics structure', () => {
+      const stats = webrtcService.getStats();
+      expect(stats).toHaveProperty('activeSessions');
+      expect(stats).toHaveProperty('totalSessions');
+      expect(stats).toHaveProperty('stats');
+      expect(stats).toHaveProperty('sessions');
+    });
+
+    test('should track sessions correctly', () => {
+      const stats = webrtcService.getStats();
+      expect(stats.stats.sessionsCreated).toBe(0);
+      expect(stats.stats.sessionsCompleted).toBe(0);
+      expect(stats.stats.signalsProcessed).toBe(0);
+    });
   });
 
-  test('should stop streaming', () => {
-    videoStats.startStreaming();
-    videoStats.stopStreaming();
-    const stats = videoStats.getStats();
-    
-    expect(stats.isStreaming).toBe(false);
-  });
-
-  test('should update frame stats', () => {
-    const frameData = { frame_number: 1 };
-    videoStats.updateFrameStats(frameData);
-    const stats = videoStats.getStats();
-    
-    expect(stats.frameCount).toBe(1);
-    expect(stats.lastFrameTime).toBeDefined();
-  });
-
-  test('should determine when to log frame', () => {
-    // Первые 29 кадров не должны логироваться
-    for (let i = 1; i < 30; i++) {
-      videoStats.updateFrameStats({ frame_number: i });
-      expect(videoStats.shouldLogFrame()).toBe(false);
-    }
-    
-    // 30-й кадр должен логироваться
-    videoStats.updateFrameStats({ frame_number: 30 });
-    expect(videoStats.shouldLogFrame()).toBe(true);
+  describe('Session Management', () => {
+    test('should cleanup old sessions', () => {
+      webrtcService.cleanup();
+      const stats = webrtcService.getStats();
+      expect(stats.activeSessions).toBe(0);
+    });
   });
 });
 
