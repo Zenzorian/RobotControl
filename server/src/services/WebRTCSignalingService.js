@@ -38,6 +38,9 @@ class WebRTCSignalingService {
         case 'ice-candidate':
           return await this.handleIceCandidate(ws, data);
           
+        case 'request_video':
+          return await this.handleRequestVideo(ws, data);
+          
         case 'session-start':
           return await this.handleSessionStart(ws, data);
           
@@ -123,8 +126,8 @@ class WebRTCSignalingService {
     // Пересылаем answer роботу
     if (session.robot) {
       const answerMessage = {
-        type: 'webrtc-signal',
-        signalType: 'answer',
+        type: 'webrtc_signal',
+        signal_type: 'answer',
         sessionId: sessionId,
         data: data
       };
@@ -162,9 +165,10 @@ class WebRTCSignalingService {
     }
 
     if (targetClient) {
+      // Используем правильный формат в зависимости от получателя
       const iceMessage = {
-        type: 'webrtc-signal',
-        signalType: 'ice-candidate',
+        type: targetClient.clientType === 'robot' ? 'webrtc_signal' : 'webrtc-signal',
+        [targetClient.clientType === 'robot' ? 'signal_type' : 'signalType']: 'ice-candidate',
         sessionId: sessionId,
         data: data
       };
@@ -176,6 +180,40 @@ class WebRTCSignalingService {
       console.log('❌ Целевой клиент не найден для ICE кандидата');
       return false;
     }
+  }
+
+  /**
+   * Обработка запроса видео от контроллера
+   */
+  async handleRequestVideo(ws, data) {
+    if (ws.clientType !== 'controller') {
+      console.log('❌ Запрос видео может отправлять только контроллер');
+      return false;
+    }
+
+    // Найти подключенного робота
+    const robotClient = this.clientManager.getTargetClient('controller');
+    if (!robotClient) {
+      console.log('❌ Робот не подключен для запроса видео');
+      ws.send(JSON.stringify({
+        type: 'webrtc-signal',
+        signalType: 'error',
+        data: { message: 'Robot not connected' }
+      }));
+      return false;
+    }
+
+    // Переслать запрос роботу
+    const requestMessage = {
+      type: 'webrtc_signal',
+      signal_type: 'request_video',
+      data: data || {}
+    };
+
+    robotClient.send(JSON.stringify(requestMessage));
+    console.log('📹 Запрос видео переслан роботу');
+    
+    return true;
   }
 
   /**
@@ -209,8 +247,8 @@ class WebRTCSignalingService {
       const otherClient = ws.clientType === 'robot' ? session.controller : session.robot;
       if (otherClient) {
         const endMessage = {
-          type: 'webrtc-signal',
-          signalType: 'session-end',
+          type: otherClient.clientType === 'robot' ? 'webrtc_signal' : 'webrtc-signal',
+          [otherClient.clientType === 'robot' ? 'signal_type' : 'signalType']: 'session-end',
           sessionId: sessionId,
           data: { reason: 'peer-disconnected' }
         };
