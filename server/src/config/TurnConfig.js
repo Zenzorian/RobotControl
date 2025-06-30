@@ -8,7 +8,25 @@ class TurnConfig {
   }
 
   static get TURN_SERVER_HOST() {
-    return process.env.TURN_HOST || '193.169.240.11';
+    if (process.env.TURN_HOST) {
+      return process.env.TURN_HOST;
+    }
+    
+    const os = require('os');
+    const networkInterfaces = os.networkInterfaces();
+    
+    for (const interfaceName in networkInterfaces) {
+      const interfaces = networkInterfaces[interfaceName];
+      for (const iface of interfaces) {
+        if (iface.family === 'IPv4' && !iface.internal) {
+          console.log(`🔧 Автоопределение TURN IP: ${iface.address} (интерфейс: ${interfaceName})`);
+          return iface.address;
+        }
+      }
+    }
+    
+    console.log(`⚠️ Внешний IP не найден, используем localhost для TURN`);
+    return '127.0.0.1';
   }
 
   static get TURN_USERNAME() {
@@ -27,7 +45,6 @@ class TurnConfig {
     return process.env.TURN_SECRET || 'robotclient-secret-2024';
   }
 
-  // Публичные STUN серверы как fallback
   static get PUBLIC_STUN_SERVERS() {
     return [
       'stun:stun.l.google.com:19302',
@@ -37,32 +54,30 @@ class TurnConfig {
     ];
   }
 
-  // Полная ICE конфигурация для WebRTC
   static getICEConfiguration() {
     const iceServers = [];
 
-    // Добавляем STUN серверы
     this.PUBLIC_STUN_SERVERS.forEach(stunServer => {
       iceServers.push({ urls: stunServer });
     });
 
-    // Добавляем наш TURN сервер (UDP)
+    const turnHost = this.TURN_SERVER_HOST;
+    console.log(`🔄 Генерация ICE конфигурации с TURN IP: ${turnHost}`);
+
     iceServers.push({
-      urls: `turn:${this.TURN_SERVER_HOST}:${this.TURN_SERVER_PORT}`,
+      urls: `turn:${turnHost}:${this.TURN_SERVER_PORT}`,
       username: this.TURN_USERNAME,
       credential: this.TURN_PASSWORD
     });
 
-    // Добавляем TURN сервер (TCP)
     iceServers.push({
-      urls: `turn:${this.TURN_SERVER_HOST}:${this.TURN_SERVER_PORT}?transport=tcp`,
+      urls: `turn:${turnHost}:${this.TURN_SERVER_PORT}?transport=tcp`,
       username: this.TURN_USERNAME,
       credential: this.TURN_PASSWORD
     });
 
-    // Добавляем TURNS сервер (TLS)
     iceServers.push({
-      urls: `turns:${this.TURN_SERVER_HOST}:${this.TURN_SERVER_TLS_PORT}`,
+      urls: `turns:${turnHost}:${this.TURN_SERVER_TLS_PORT}`,
       username: this.TURN_USERNAME,
       credential: this.TURN_PASSWORD
     });
@@ -75,14 +90,15 @@ class TurnConfig {
     };
   }
 
-  // Конфигурация для coturn сервера (пользовательский режим)
   static getCoturnConfig() {
+    const turnHost = this.TURN_SERVER_HOST;
+    
     return {
       'listening-port': this.TURN_SERVER_PORT,
       'tls-listening-port': this.TURN_SERVER_TLS_PORT,
       'listening-ip': '0.0.0.0',
-      'external-ip': this.TURN_SERVER_HOST,
-      'relay-ip': this.TURN_SERVER_HOST,
+      'external-ip': turnHost,
+      'relay-ip': turnHost,
       'fingerprint': true,
       'lt-cred-mech': true,
       'user': `${this.TURN_USERNAME}:${this.TURN_PASSWORD}`,
@@ -90,20 +106,25 @@ class TurnConfig {
       'server-name': this.TURN_REALM,
       'total-quota': 100,
       'stale-nonce': true,
-      'no-tls': true, // Отключаем TLS для упрощения
-      'no-dtls': true, // Отключаем DTLS
+      'no-tls': true,
+      'no-dtls': true,
       'log-file': '/tmp/turnserver-robot.log',
       'pidfile': '/tmp/turnserver-robot.pid',
       'verbose': true,
       'simple-log': true,
       'new-log-timestamp-format': true,
-      'no-cli': true
+      'no-cli': true,
+      'max-bps': 1000000,
+      'min-port': 49152,
+      'max-port': 65535,
+      'no-multicast-peers': true,
+      'mobility': true
     };
   }
 
-  // Проверка доступности TURN сервера
   static async checkTurnServerHealth() {
     const net = require('net');
+    const turnHost = this.TURN_SERVER_HOST;
     
     return new Promise((resolve) => {
       const socket = new net.Socket();
@@ -112,7 +133,7 @@ class TurnConfig {
         resolve(false);
       }, 5000);
 
-      socket.connect(this.TURN_SERVER_PORT, this.TURN_SERVER_HOST, () => {
+      socket.connect(this.TURN_SERVER_PORT, turnHost, () => {
         clearTimeout(timeout);
         socket.destroy();
         resolve(true);
@@ -123,6 +144,17 @@ class TurnConfig {
         resolve(false);
       });
     });
+  }
+
+  static logDiagnostics() {
+    const turnHost = this.TURN_SERVER_HOST;
+    console.log('🔧 TURN конфигурация:');
+    console.log(`   Хост: ${turnHost}`);
+    console.log(`   Порт UDP/TCP: ${this.TURN_SERVER_PORT}`);
+    console.log(`   Порт TLS: ${this.TURN_SERVER_TLS_PORT}`);
+    console.log(`   Пользователь: ${this.TURN_USERNAME}`);
+    console.log(`   Realm: ${this.TURN_REALM}`);
+    console.log(`   Учетные данные: ${this.TURN_PASSWORD ? 'установлены' : 'не установлены'}`);
   }
 }
 

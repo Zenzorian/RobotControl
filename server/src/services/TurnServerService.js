@@ -31,6 +31,18 @@ class TurnServerService {
   async start() {
     try {
       console.log('🚀 Запуск TURN-сервера...');
+      
+      // 🔧 ДИАГНОСТИКА: выводим конфигурацию перед запуском
+      TurnConfig.logDiagnostics();
+      
+      // Проверяем запущенные процессы turnserver
+      await this.cleanup();
+      
+      // Проверяем доступность портов
+      const portAvailable = await this.checkPortAvailability();
+      if (!portAvailable) {
+        throw new Error(`Порты ${TurnConfig.TURN_SERVER_PORT} или ${TurnConfig.TURN_SERVER_TLS_PORT} заняты`);
+      }
 
       // Проверяем, установлен ли coturn
       if (!(await this.checkCoturnInstalled())) {
@@ -45,12 +57,6 @@ class TurnServerService {
       // Останавливаем существующие TURN процессы
       await this.killExistingTurnServers();
       await new Promise(resolve => setTimeout(resolve, 2000)); // Ждем 2 секунды
-
-      // Проверяем доступность портов
-      const portsAvailable = await this.checkPortAvailability();
-      if (!portsAvailable) {
-        console.log('⚠️ Некоторые порты заняты, но попробуем запустить...');
-      }
 
       // Создаем конфигурационный файл
       await this.createConfigFile();
@@ -369,6 +375,15 @@ class TurnServerService {
     await new Promise(resolve => setTimeout(resolve, 2000));
     return await this.start();
   }
+
+     /**
+    * Очистка перед запуском
+    */
+   async cleanup() {
+     console.log('🔄 Предварительная очистка TURN сервера...');
+     await this.killExistingTurnServers();
+     await new Promise(resolve => setTimeout(resolve, 1000)); // Ждем 1 секунду
+   }
 }
 
 module.exports = TurnServerService; 
