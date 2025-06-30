@@ -64,8 +64,8 @@ class MessageHandler {
       return false;
     }
     
-    const { signalType, data } = message;
-    return await this.webrtcSignalingService.handleWebRTCSignal(ws, signalType, data);
+    const { signalType, sessionId, data } = message;
+    return await this.webrtcSignalingService.handleWebRTCSignal(ws, signalType, { sessionId, ...data });
   }
 
   handleCommand(ws, targetClient, message) {
