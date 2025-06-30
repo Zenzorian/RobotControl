@@ -67,7 +67,12 @@ class WebRTCSignalingService {
       return false;
     }
 
-    const sessionId = data.sessionId || `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const sessionId = data.sessionId; // Используем sessionId от робота, НЕ генерируем новый!
+    
+    if (!sessionId) {
+      console.log('❌ Offer без sessionId от робота');
+      return false;
+    }
     
     console.log(`📡 Получен offer от робота с sessionId: ${sessionId}`);
     
@@ -83,8 +88,10 @@ class WebRTCSignalingService {
     this.stats.sessionsCreated++;
     
     // Пересылаем offer контроллеру (НЕ роботу!)
-    const controllerClient = this.clientManager.getTargetClient('controller');
-    if (controllerClient) {
+    const controllerClient = this.clientManager.clients.controller;
+    console.log(`🔍 Поиск контроллера для offer: ${controllerClient ? 'найден' : 'не найден'}, readyState: ${controllerClient?.readyState}`);
+    
+    if (controllerClient && controllerClient.readyState === 1) {
       const offerMessage = {
         type: 'webrtc-signal',
         signalType: 'offer',
