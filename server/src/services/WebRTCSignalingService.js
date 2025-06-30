@@ -195,6 +195,9 @@ class WebRTCSignalingService {
 
     // Найти подключенного робота
     const robotClient = this.clientManager.getTargetClient('robot');
+    console.log(`🔍 Поиск робота для запроса видео...`);
+    console.log(`📊 Подключенные клиенты: ${JSON.stringify(this.clientManager.getStats())}`);
+    
     if (!robotClient) {
       console.log('❌ Робот не подключен для запроса видео');
       ws.send(JSON.stringify({
@@ -204,6 +207,8 @@ class WebRTCSignalingService {
       }));
       return false;
     }
+    
+    console.log(`✅ Робот найден: ${robotClient.clientType}, readyState: ${robotClient.readyState}`);
 
     // Создаем или используем sessionId
     const sessionId = data.sessionId || `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -218,8 +223,14 @@ class WebRTCSignalingService {
       data: data || {}
     };
 
-    robotClient.send(JSON.stringify(requestMessage));
-    console.log(`📹 Запрос видео переслан роботу с sessionId: ${sessionId}`);
+    try {
+      robotClient.send(JSON.stringify(requestMessage));
+      console.log(`📹 Запрос видео переслан роботу с sessionId: ${sessionId}`);
+      console.log(`📤 Отправленное сообщение: ${JSON.stringify(requestMessage)}`);
+    } catch (error) {
+      console.log(`❌ Ошибка отправки сообщения роботу: ${error.message}`);
+      return false;
+    }
     
     return true;
   }
