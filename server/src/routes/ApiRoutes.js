@@ -1,11 +1,12 @@
 const express = require('express');
 
 class ApiRoutes {
-  constructor(clientManager, webSocketService, webrtcSignalingService = null) {
+  constructor(clientManager, webSocketService, webrtcSignalingService = null, turnServerService = null) {
     this.router = express.Router();
     this.clientManager = clientManager;
     this.webSocketService = webSocketService;
     this.webrtcSignalingService = webrtcSignalingService;
+    this.turnServerService = turnServerService;
     
     this.setupRoutes();
   }
@@ -97,6 +98,55 @@ class ApiRoutes {
       res.json(response);
     });
 
+    // TURN Server статистика
+    this.router.get('/turn/stats', (req, res) => {
+      if (this.turnServerService) {
+        res.json(this.turnServerService.getStats());
+      } else {
+        res.status(503).json({ 
+          error: 'TURN server service not available' 
+        });
+      }
+    });
+
+    // TURN Server управление
+    this.router.post('/turn/restart', async (req, res) => {
+      if (this.turnServerService) {
+        try {
+          const result = await this.turnServerService.restart();
+          res.json({ 
+            success: result,
+            message: result ? 'TURN server restarted successfully' : 'Failed to restart TURN server'
+          });
+        } catch (error) {
+          res.status(500).json({ 
+            error: 'Failed to restart TURN server',
+            details: error.message 
+          });
+        }
+      } else {
+        res.status(503).json({ 
+          error: 'TURN server service not available' 
+        });
+      }
+    });
+
+    // ICE конфигурация для клиентов
+    this.router.get('/ice/config', (req, res) => {
+      if (this.webrtcSignalingService) {
+        const iceConfig = this.webrtcSignalingService.getICEConfiguration();
+        res.json(iceConfig);
+      } else {
+        // Fallback конфигурация
+        res.json({
+          iceServers: [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' }
+          ]
+        });
+      }
+    });
+
     // Health check
     this.router.get('/health', (req, res) => {
       const health = {
@@ -105,23 +155,32 @@ class ApiRoutes {
         uptime: process.uptime(),
         services: {
           websocket: true,
-          webrtc: !!this.webrtcSignalingService
+          webrtc: !!this.webrtcSignalingService,
+          turn: !!this.turnServerService && this.turnServerService.getStats().isRunning
         }
       };
       
       res.json(health);
     });
 
-    // WebRTC конфигурация для клиентов
+    // WebRTC конфигурация для клиентов (обновленная с TURN)
     this.router.get('/webrtc/config', (req, res) => {
-      res.json({
+      const config = {
         enabled: !!this.webrtcSignalingService,
         signalingEndpoint: '/api/webrtc/signal',
-        iceServers: [
+        iceConfigEndpoint: '/api/ice/config'
+      };
+
+      if (this.webrtcSignalingService) {
+        config.iceServers = this.webrtcSignalingService.getICEConfiguration().iceServers;
+      } else {
+        config.iceServers = [
           { urls: 'stun:stun.l.google.com:19302' },
           { urls: 'stun:stun1.l.google.com:19302' }
-        ]
-      });
+        ];
+      }
+
+      res.json(config);
     });
   }
 

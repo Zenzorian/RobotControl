@@ -4,19 +4,25 @@ const { v4: uuidv4 } = require('uuid');
  * WebRTC Signaling Service
  * Следует принципу единственной ответственности (SRP)
  * Отвечает только за WebRTC сигналинг между клиентами
+ * Интегрирован с TURN-сервером для NAT traversal
  */
 class WebRTCSignalingService {
-  constructor(clientManager) {
+  constructor(clientManager, turnServerService = null) {
     this.clientManager = clientManager;
+    this.turnServerService = turnServerService;
     this.sessions = new Map(); // sessionId -> { robot, controller, state }
     this.stats = {
       sessionsCreated: 0,
       sessionsCompleted: 0,
       sessionsFailed: 0,
-      signalsProcessed: 0
+      signalsProcessed: 0,
+      turnConnectionsUsed: 0
     };
     
     console.log('🎯 WebRTC Signaling Service инициализирован');
+    if (this.turnServerService) {
+      console.log('🔄 TURN-сервер интегрирован в WebRTC сигналинг');
+    }
   }
 
   /**
@@ -46,6 +52,9 @@ class WebRTCSignalingService {
           
         case 'session-end':
           return await this.handleSessionEnd(ws, data);
+          
+        case 'ice-configuration':
+          return await this.handleICEConfigurationRequest(ws, data);
           
         default:
           console.log(`❓ Неизвестный WebRTC сигнал: ${signalType}`);
@@ -359,6 +368,78 @@ class WebRTCSignalingService {
         console.log(`🧹 Удаление старой WebRTC сессии: ${sessionId}`);
         this.sessions.delete(sessionId);
       }
+    }
+  }
+
+  /**
+   * Получение ICE конфигурации для клиентов
+   * Включает TURN серверы если доступны
+   */
+  getICEConfiguration() {
+    if (this.turnServerService) {
+      const config = this.turnServerService.getICEConfiguration();
+      console.log('🧊 Отправка ICE конфигурации с TURN сервером');
+      return config;
+    } else {
+      // Fallback только на STUN серверы
+      console.log('🧊 Отправка ICE конфигурации только с STUN серверами');
+      return {
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:stun1.l.google.com:19302' }
+        ],
+        iceCandidatePoolSize: 10,
+        bundlePolicy: 'max-bundle',
+        rtcpMuxPolicy: 'require'
+      };
+    }
+  }
+
+  /**
+   * Отправка ICE конфигурации клиенту
+   */
+  async sendICEConfiguration(ws) {
+    try {
+      const iceConfig = this.getICEConfiguration();
+      const iceMessage = {
+        type: 'webrtc-signal',
+        signalType: 'ice-configuration',
+        data: iceConfig
+      };
+
+      ws.send(JSON.stringify(iceMessage));
+      console.log(`🧊 ICE конфигурация отправлена ${ws.clientType}`);
+      return true;
+    } catch (error) {
+      console.error('❌ Ошибка отправки ICE конфигурации:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Обработка запроса ICE конфигурации
+   */
+  async handleICEConfigurationRequest(ws, data) {
+    console.log(`🧊 Запрос ICE конфигурации от ${ws.clientType}`);
+    return await this.sendICEConfiguration(ws);
+  }
+
+  /**
+   * Получение статистики TURN сервера
+   */
+  getTurnStats() {
+    if (this.turnServerService) {
+      const turnStats = this.turnServerService.getStats();
+      return {
+        turnServerAvailable: true,
+        ...turnStats,
+        connectionsUsedInWebRTC: this.stats.turnConnectionsUsed
+      };
+    } else {
+      return {
+        turnServerAvailable: false,
+        message: 'TURN сервер не инициализирован'
+      };
     }
   }
 }
