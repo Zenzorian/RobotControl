@@ -1,10 +1,10 @@
 class TurnConfig {
   static get TURN_SERVER_PORT() {
-    return process.env.TURN_PORT || 3478;
+    return process.env.TURN_PORT || 13478; // Непривилегированный порт
   }
 
   static get TURN_SERVER_TLS_PORT() {
-    return process.env.TURN_TLS_PORT || 5349;
+    return process.env.TURN_TLS_PORT || 15349; // Непривилегированный порт
   }
 
   static get TURN_SERVER_HOST() {
@@ -75,7 +75,7 @@ class TurnConfig {
     };
   }
 
-  // Конфигурация для coturn сервера
+  // Конфигурация для coturn сервера (пользовательский режим)
   static getCoturnConfig() {
     return {
       'listening-port': this.TURN_SERVER_PORT,
@@ -90,10 +90,15 @@ class TurnConfig {
       'server-name': this.TURN_REALM,
       'total-quota': 100,
       'stale-nonce': true,
-      'cert': '/etc/ssl/certs/turn-server.crt',
-      'pkey': '/etc/ssl/private/turn-server.key',
-      'log-file': '/var/log/turnserver.log',
-      'verbose': true
+      'no-tls': true, // Отключаем TLS для упрощения
+      'no-dtls': true, // Отключаем DTLS
+      'log-file': '/tmp/turnserver-robot.log',
+      'pidfile': '/tmp/turnserver-robot.pid',
+      'verbose': true,
+      'simple-log': true,
+      'new-log-timestamp-format': true,
+      'no-cli': true,
+      'no-web-admin': true
     };
   }
 

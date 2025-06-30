@@ -12,8 +12,9 @@ class TurnServerService {
   constructor() {
     this.turnProcess = null;
     this.isRunning = false;
-    this.configFile = '/tmp/turnserver.conf';
-    this.logFile = '/var/log/turnserver.log';
+    this.configFile = '/tmp/turnserver-robot.conf';
+    this.logFile = '/tmp/turnserver-robot.log';
+    this.pidFile = '/tmp/turnserver-robot.pid';
     this.stats = {
       startedAt: null,
       restarts: 0,
@@ -33,8 +34,22 @@ class TurnServerService {
 
       // Проверяем, установлен ли coturn
       if (!(await this.checkCoturnInstalled())) {
-        console.log('❌ coturn не установлен. Устанавливаем...');
-        await this.installCoturn();
+        console.log('⚠️ coturn не установлен. Попробуем установить...');
+        try {
+          await this.installCoturn();
+        } catch (error) {
+          console.log('❌ Не удалось установить coturn, но продолжаем (возможно уже установлен системно)');
+        }
+      }
+
+      // Останавливаем существующие TURN процессы
+      await this.killExistingTurnServers();
+      await new Promise(resolve => setTimeout(resolve, 2000)); // Ждем 2 секунды
+
+      // Проверяем доступность портов
+      const portsAvailable = await this.checkPortAvailability();
+      if (!portsAvailable) {
+        console.log('⚠️ Некоторые порты заняты, но попробуем запустить...');
       }
 
       // Создаем конфигурационный файл
@@ -118,6 +133,57 @@ class TurnServerService {
   }
 
   /**
+   * Проверка доступности портов
+   */
+  async checkPortAvailability() {
+    const net = require('net');
+    
+    const checkPort = (port) => {
+      return new Promise((resolve) => {
+        const server = net.createServer();
+        server.listen(port, (err) => {
+          if (err) {
+            resolve(false);
+          } else {
+            server.once('close', () => resolve(true));
+            server.close();
+          }
+        });
+        server.on('error', () => resolve(false));
+      });
+    };
+
+    const mainPortAvailable = await checkPort(TurnConfig.TURN_SERVER_PORT);
+    const tlsPortAvailable = await checkPort(TurnConfig.TURN_SERVER_TLS_PORT);
+    
+    console.log(`🔍 Порт ${TurnConfig.TURN_SERVER_PORT}: ${mainPortAvailable ? 'свободен' : 'занят'}`);
+    console.log(`🔍 Порт ${TurnConfig.TURN_SERVER_TLS_PORT}: ${tlsPortAvailable ? 'свободен' : 'занят'}`);
+    
+    return mainPortAvailable && tlsPortAvailable;
+  }
+
+  /**
+   * Поиск и остановка существующих TURN процессов
+   */
+  async killExistingTurnServers() {
+    try {
+      const { exec } = require('child_process');
+      return new Promise((resolve) => {
+        exec('pkill -f turnserver', (error) => {
+          if (error) {
+            console.log('ℹ️ Нет запущенных turnserver процессов (или нет прав)');
+          } else {
+            console.log('🛑 Остановлены существующие turnserver процессы');
+          }
+          resolve();
+        });
+      });
+    } catch (error) {
+      console.log('⚠️ Не удалось остановить существующие процессы:', error.message);
+    }
+  }
+
+  /**
    * Создание конфигурационного файла
    */
   async createConfigFile() {
@@ -142,12 +208,17 @@ class TurnServerService {
     configLines.push('no-multicast-peers');
     configLines.push('mobility');
     configLines.push('');
+    configLines.push('# User-space configuration');
+    configLines.push('no-cli');
+    configLines.push('no-web-admin');
+    configLines.push('');
 
     const configContent = configLines.join('\n');
     
     try {
       await fs.writeFile(this.configFile, configContent);
       console.log(`📝 Конфигурационный файл создан: ${this.configFile}`);
+      console.log(`📄 Содержимое конфигурации:\n${configContent}`);
     } catch (error) {
       console.error('❌ Ошибка создания конфигурационного файла:', error);
       throw error;
