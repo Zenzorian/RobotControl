@@ -194,7 +194,7 @@ class WebRTCSignalingService {
     }
 
     // Найти подключенного робота
-    const robotClient = this.clientManager.getTargetClient('robot');
+    const robotClient = this.clientManager.getTargetClient('controller');
     console.log(`🔍 Поиск робота для запроса видео...`);
     console.log(`📊 Подключенные клиенты: ${JSON.stringify(this.clientManager.getStats())}`);
     
