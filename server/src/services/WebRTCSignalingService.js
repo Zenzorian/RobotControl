@@ -67,7 +67,9 @@ class WebRTCSignalingService {
       return false;
     }
 
-    const sessionId = data.sessionId || uuidv4();
+    const sessionId = data.sessionId || `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    
+    console.log(`📡 Получен offer от робота с sessionId: ${sessionId}`);
     
     // Создаем новую сессию
     this.sessions.set(sessionId, {
@@ -80,9 +82,9 @@ class WebRTCSignalingService {
     
     this.stats.sessionsCreated++;
     
-    // Пересылаем offer контроллеру
-    const targetClient = this.clientManager.getTargetClient('robot');
-    if (targetClient) {
+    // Пересылаем offer контроллеру (НЕ роботу!)
+    const controllerClient = this.clientManager.getTargetClient('controller');
+    if (controllerClient) {
       const offerMessage = {
         type: 'webrtc-signal',
         signalType: 'offer',
@@ -90,11 +92,11 @@ class WebRTCSignalingService {
         data: data
       };
       
-      targetClient.send(JSON.stringify(offerMessage));
+      controllerClient.send(JSON.stringify(offerMessage));
       
       // Обновляем сессию
       const session = this.sessions.get(sessionId);
-      session.controller = targetClient;
+      session.controller = controllerClient;
       session.state = 'offer-sent';
       
       console.log(`✅ WebRTC offer переслан контроллеру (session: ${sessionId})`);
@@ -126,8 +128,8 @@ class WebRTCSignalingService {
     // Пересылаем answer роботу
     if (session.robot) {
       const answerMessage = {
-        type: 'webrtc_signal',
-        signal_type: 'answer',
+        type: 'webrtc-signal',
+        signalType: 'answer',
         sessionId: sessionId,
         data: data
       };
@@ -165,10 +167,10 @@ class WebRTCSignalingService {
     }
 
     if (targetClient) {
-      // Используем правильный формат в зависимости от получателя
+      // Используем единый новый формат для всех
       const iceMessage = {
-        type: targetClient.clientType === 'robot' ? 'webrtc_signal' : 'webrtc-signal',
-        [targetClient.clientType === 'robot' ? 'signal_type' : 'signalType']: 'ice-candidate',
+        type: 'webrtc-signal',
+        signalType: 'ice-candidate',
         sessionId: sessionId,
         data: data
       };
@@ -192,7 +194,7 @@ class WebRTCSignalingService {
     }
 
     // Найти подключенного робота
-    const robotClient = this.clientManager.getTargetClient('controller');
+    const robotClient = this.clientManager.getTargetClient('robot');
     if (!robotClient) {
       console.log('❌ Робот не подключен для запроса видео');
       ws.send(JSON.stringify({
@@ -203,15 +205,21 @@ class WebRTCSignalingService {
       return false;
     }
 
-    // Переслать запрос роботу
+    // Создаем или используем sessionId
+    const sessionId = data.sessionId || `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    
+    console.log(`📹 Обрабатываем запрос видео с sessionId: ${sessionId}`);
+
+    // Переслать запрос роботу с sessionId (новый формат)
     const requestMessage = {
-      type: 'webrtc_signal',
-      signal_type: 'request_video',
+      type: 'webrtc-signal',
+      signalType: 'request_video',
+      sessionId: sessionId,
       data: data || {}
     };
 
     robotClient.send(JSON.stringify(requestMessage));
-    console.log('📹 Запрос видео переслан роботу');
+    console.log(`📹 Запрос видео переслан роботу с sessionId: ${sessionId}`);
     
     return true;
   }
@@ -247,8 +255,8 @@ class WebRTCSignalingService {
       const otherClient = ws.clientType === 'robot' ? session.controller : session.robot;
       if (otherClient) {
         const endMessage = {
-          type: otherClient.clientType === 'robot' ? 'webrtc_signal' : 'webrtc-signal',
-          [otherClient.clientType === 'robot' ? 'signal_type' : 'signalType']: 'session-end',
+          type: 'webrtc-signal',
+          signalType: 'session-end',
           sessionId: sessionId,
           data: { reason: 'peer-disconnected' }
         };
