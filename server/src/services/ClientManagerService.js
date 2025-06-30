@@ -72,6 +72,13 @@ class ClientManagerService {
     }
     return false;
   }
+
+  getStats() {
+    return {
+      robots: this.isClientConnected('robot') ? 1 : 0,
+      controllers: this.isClientConnected('controller') ? 1 : 0
+    };
+  }
 }
 
 module.exports = ClientManagerService; 
