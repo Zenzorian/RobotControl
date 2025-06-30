@@ -210,7 +210,6 @@ class TurnServerService {
     configLines.push('');
     configLines.push('# User-space configuration');
     configLines.push('no-cli');
-    configLines.push('no-web-admin');
     configLines.push('');
 
     const configContent = configLines.join('\n');

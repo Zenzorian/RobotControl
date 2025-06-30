@@ -78,6 +78,23 @@ class ServerManager {
   }
 
   setupExpress() {
+    // CORS middleware для API запросов
+    this.app.use((req, res, next) => {
+      res.header('Access-Control-Allow-Origin', '*');
+      res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+      res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+      
+      // Обработка preflight OPTIONS запросов
+      if (req.method === 'OPTIONS') {
+        res.sendStatus(200);
+      } else {
+        next();
+      }
+    });
+    
+    // JSON parser middleware
+    this.app.use(express.json());
+    
     // Статические файлы
     this.app.use(express.static(path.join(__dirname, '../public')));
     

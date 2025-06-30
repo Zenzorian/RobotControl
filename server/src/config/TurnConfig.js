@@ -97,8 +97,7 @@ class TurnConfig {
       'verbose': true,
       'simple-log': true,
       'new-log-timestamp-format': true,
-      'no-cli': true,
-      'no-web-admin': true
+      'no-cli': true
     };
   }
 
