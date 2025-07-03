@@ -65,15 +65,21 @@ class MessageHandler {
     }
     
     const { signalType, sessionId, data } = message;
-    let dataToSend;
-    if (typeof data === 'string') {
-      dataToSend = data;
-    } else if (data && typeof data === 'object') {
-      dataToSend = { ...data };
+    // Для offer/answer/ice-candidate не оборачиваем в {sessionId, data}, а передаем data напрямую
+    if (["offer", "answer", "ice-candidate"].includes(signalType)) {
+      return await this.webrtcSignalingService.handleWebRTCSignal(ws, signalType, data);
     } else {
-      dataToSend = data;
+      // Для остальных сигналов (например, session_ready) сохраняем старую логику
+      let dataToSend;
+      if (typeof data === 'string') {
+        dataToSend = data;
+      } else if (data && typeof data === 'object') {
+        dataToSend = { ...data };
+      } else {
+        dataToSend = data;
+      }
+      return await this.webrtcSignalingService.handleWebRTCSignal(ws, signalType, { sessionId, data: dataToSend });
     }
-    return await this.webrtcSignalingService.handleWebRTCSignal(ws, signalType, { sessionId, data: dataToSend });
   }
 
   handleCommand(ws, targetClient, message) {
