@@ -60,12 +60,20 @@ class MessageHandler {
    */
   async handleWebRTCSignal(ws, message) {
     if (!this.webrtcSignalingService) {
-      console.log('⚠️ WebRTC сигналинг не активен');
+      console.log('\u26a0\ufe0f WebRTC \u0441\u0438\u0433\u043d\u0430\u043b\u0438\u043d\u0433 \u043d\u0435 \u0430\u043a\u0442\u0438\u0432\u0435\u043d');
       return false;
     }
     
     const { signalType, sessionId, data } = message;
-    return await this.webrtcSignalingService.handleWebRTCSignal(ws, signalType, { sessionId, ...data });
+    let dataToSend;
+    if (typeof data === 'string') {
+      dataToSend = data;
+    } else if (data && typeof data === 'object') {
+      dataToSend = { ...data };
+    } else {
+      dataToSend = data;
+    }
+    return await this.webrtcSignalingService.handleWebRTCSignal(ws, signalType, { sessionId, data: dataToSend });
   }
 
   handleCommand(ws, targetClient, message) {
