@@ -5,7 +5,7 @@ namespace Scripts.Utils
 {
     public class VideoDebugCommands : MonoBehaviour
     {
-        private IOptimizedRobotVideoService _videoService;
+        private IWebRTCVideoService _videoService;
         
         private void Start()
         {
@@ -14,40 +14,45 @@ namespace Scripts.Utils
         
         private void FindVideoService()
         {
-            var videoServiceObj = GameObject.FindObjectOfType<OptimizedRobotVideoService>();
+            var videoServiceObj = GameObject.FindObjectOfType<WebRTCVideoService>();
             if (videoServiceObj != null)
             {
                 _videoService = videoServiceObj;
-                Debug.Log("VideoDebugCommands: Сервис видео найден");
+                Debug.Log("VideoDebugCommands: WebRTC видео сервис найден");
             }
         }
         
         private void Update()
         {
-            // Горячие клавиши для отладки
+            // Горячие клавиши для отладки WebRTC
             if (Input.GetKeyDown(KeyCode.F1))
             {
-                CheckVideoStatus();
+                CheckWebRTCStatus();
             }
             
             if (Input.GetKeyDown(KeyCode.F2))
             {
-                LogDetailedVideoStats();
+                LogDetailedWebRTCStats();
             }
             
             if (Input.GetKeyDown(KeyCode.F3))
             {
-                ResetVideoStats();
+                ResetWebRTCStats();
             }
             
             if (Input.GetKeyDown(KeyCode.F4))
             {
-                RequestVideoStream();
+                StartWebRTCConnection();
+            }
+            
+            if (Input.GetKeyDown(KeyCode.F5))
+            {
+                StopWebRTCConnection();
             }
         }
         
-        [ContextMenu("Check Video Status")]
-        public void CheckVideoStatus()
+        [ContextMenu("Check WebRTC Status")]
+        public void CheckWebRTCStatus()
         {
             if (_videoService == null)
             {
@@ -56,35 +61,32 @@ namespace Scripts.Utils
             
             if (_videoService == null)
             {
-                Debug.LogError("❌ Видео сервис не найден!");
+                Debug.LogError("❌ WebRTC видео сервис не найден!");
                 return;
             }
             
-            bool videoReceived;
-            int totalMessages, videoMessages, invalidFrames;
-            _videoService.GetDetailedVideoStats(out videoReceived, out totalMessages, out videoMessages, out invalidFrames);
-            
-            string status = $"🔍 БЫСТРАЯ ПРОВЕРКА ВИДЕО:\n" +
-                          $"• Видео получено: {(videoReceived ? "✅ ДА" : "❌ НЕТ")}\n" +
+            string status = $"🔍 БЫСТРАЯ ПРОВЕРКА WEBRTC:\n" +
+                          $"• Подключено: {(_videoService.IsConnected ? "✅ ДА" : "❌ НЕТ")}\n" +
+                          $"• Стриминг: {(_videoService.IsStreaming ? "✅ ДА" : "❌ НЕТ")}\n" +
+                          $"• Состояние: {_videoService.ConnectionState}\n" +
                           $"• FPS: {_videoService.CurrentFPS:F1}\n" +
-                          $"• Кадров обработано: {_videoService.ReceivedFrames}\n" +
-                          $"• Всего сообщений: {totalMessages}\n" +
-                          $"• Видео сообщений: {videoMessages}";
+                          $"• Кадров получено: {_videoService.ReceivedFrames}\n" +
+                          $"• Байт получено: {_videoService.BytesReceived:N0}";
             
             Debug.Log(status);
             
-            if (!videoReceived && totalMessages > 0)
+            if (!_videoService.IsConnected)
             {
-                Debug.LogWarning("⚠️ ПРОБЛЕМА: Сообщения получаем, но видео НЕТ!");
+                Debug.LogWarning("⚠️ WebRTC не подключен. Попробуйте F4 для запуска соединения.");
             }
-            else if (!videoReceived)
+            else if (!_videoService.IsStreaming)
             {
-                Debug.LogWarning("⚠️ Видео не получено. Проверьте подключение робота.");
+                Debug.LogWarning("⚠️ WebRTC подключен, но стриминг неактивен.");
             }
         }
         
-        [ContextMenu("Log Detailed Video Stats")]
-        public void LogDetailedVideoStats()
+        [ContextMenu("Log Detailed WebRTC Stats")]
+        public void LogDetailedWebRTCStats()
         {
             if (_videoService == null)
             {
@@ -93,19 +95,17 @@ namespace Scripts.Utils
             
             if (_videoService != null)
             {
-                string report = _videoService.GetVideoStatusReport();
-                Debug.Log("📊 ПОДРОБНЫЙ ОТЧЕТ О ВИДЕО:\n" + report);
-                
-                _videoService.ForceVideoStatusLog();
+                string report = _videoService.GetStatusReport();
+                Debug.Log("📊 ПОДРОБНЫЙ ОТЧЕТ WEBRTC:\n" + report);
             }
             else
             {
-                Debug.LogError("❌ Видео сервис не найден!");
+                Debug.LogError("❌ WebRTC видео сервис не найден!");
             }
         }
         
-        [ContextMenu("Reset Video Stats")]
-        public void ResetVideoStats()
+        [ContextMenu("Reset WebRTC Stats")]
+        public void ResetWebRTCStats()
         {
             if (_videoService == null)
             {
@@ -114,17 +114,17 @@ namespace Scripts.Utils
             
             if (_videoService != null)
             {
-                _videoService.ResetStats();
-                Debug.Log("🔄 Статистика видео сброшена");
+                _videoService.ResetStatistics();
+                Debug.Log("🔄 Статистика WebRTC сброшена");
             }
             else
             {
-                Debug.LogError("❌ Видео сервис не найден!");
+                Debug.LogError("❌ WebRTC видео сервис не найден!");
             }
         }
         
-        [ContextMenu("Request Video Stream")]
-        public void RequestVideoStream()
+        [ContextMenu("Start WebRTC Connection")]
+        public void StartWebRTCConnection()
         {
             if (_videoService == null)
             {
@@ -133,17 +133,17 @@ namespace Scripts.Utils
             
             if (_videoService != null)
             {
-                _videoService.RequestVideoStream();
-                Debug.Log("📺 Запрос видео потока отправлен");
+                _videoService.StartConnection();
+                Debug.Log("🚀 Запуск WebRTC соединения...");
             }
             else
             {
-                Debug.LogError("❌ Видео сервис не найден!");
+                Debug.LogError("❌ WebRTC видео сервис не найден!");
             }
         }
         
-        [ContextMenu("Stop Video Stream")]
-        public void StopVideoStream()
+        [ContextMenu("Stop WebRTC Connection")]
+        public void StopWebRTCConnection()
         {
             if (_videoService == null)
             {
@@ -152,47 +152,61 @@ namespace Scripts.Utils
             
             if (_videoService != null)
             {
-                _videoService.StopVideoStream();
-                Debug.Log("⏹️ Остановка видео потока");
+                _videoService.StopConnection();
+                Debug.Log("⏹️ Остановка WebRTC соединения...");
             }
             else
             {
-                Debug.LogError("❌ Видео сервис не найден!");
+                Debug.LogError("❌ WebRTC видео сервис не найден!");
             }
         }
         
         private void OnGUI()
         {
-            // Простой GUI для отладки
-            GUILayout.BeginArea(new Rect(10, 10, 300, 200));
-            GUILayout.Label("🎥 ОТЛАДКА ВИДЕО");
+            // Простой GUI для отладки WebRTC
+            GUILayout.BeginArea(new Rect(10, 10, 350, 250));
+            GUILayout.Label("🎥 ОТЛАДКА WEBRTC");
             
-            if (GUILayout.Button("F1: Проверить статус видео"))
+            if (GUILayout.Button("F1: Проверить статус WebRTC"))
             {
-                CheckVideoStatus();
+                CheckWebRTCStatus();
             }
             
             if (GUILayout.Button("F2: Подробная статистика"))
             {
-                LogDetailedVideoStats();
+                LogDetailedWebRTCStats();
             }
             
             if (GUILayout.Button("F3: Сбросить статистику"))
             {
-                ResetVideoStats();
+                ResetWebRTCStats();
             }
             
-            if (GUILayout.Button("F4: Запросить видео"))
+            if (GUILayout.Button("F4: Запустить WebRTC"))
             {
-                RequestVideoStream();
+                StartWebRTCConnection();
+            }
+            
+            if (GUILayout.Button("F5: Остановить WebRTC"))
+            {
+                StopWebRTCConnection();
             }
             
             // Быстрый статус
             if (_videoService != null)
             {
                 GUILayout.Space(10);
-                GUILayout.Label($"Видео: {(_videoService.VideoReceived ? "✅" : "❌")} | FPS: {_videoService.CurrentFPS:F1}");
-                GUILayout.Label($"Кадров: {_videoService.ReceivedFrames} | Сообщений: {_videoService.TotalMessages}");
+                GUILayout.Label($"Подключено: {(_videoService.IsConnected ? "✅" : "❌")} | " +
+                              $"Стриминг: {(_videoService.IsStreaming ? "✅" : "❌")}");
+                GUILayout.Label($"FPS: {_videoService.CurrentFPS:F1} | " +
+                              $"Состояние: {_videoService.ConnectionState}");
+                GUILayout.Label($"Кадров: {_videoService.ReceivedFrames} | " +
+                              $"Байт: {_videoService.BytesReceived:N0}");
+            }
+            else
+            {
+                GUILayout.Space(10);
+                GUILayout.Label("❌ WebRTC сервис не найден");
             }
             
             GUILayout.EndArea();

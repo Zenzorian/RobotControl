@@ -209,16 +209,47 @@ class WebRTCSignalingService {
       return false;
     }
 
-    // Найти подключенного робота
+    // Создаем или используем sessionId
+    const sessionId = data.sessionId || `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    
+    console.log(`📹 Обрабатываем запрос видео с sessionId: ${sessionId}`);
+
+    // 1. СНАЧАЛА отправляем session_ready с ICE конфигурацией контроллеру
+    try {
+      const iceConfiguration = this.getICEConfiguration();
+      
+      const sessionReadyMessage = {
+        type: 'webrtc-signal',
+        signalType: 'session_ready',
+        sessionId: sessionId,
+        data: {
+          iceConfiguration: iceConfiguration,
+          sessionInfo: {
+            robotAvailable: true,
+            cameraActive: true
+          }
+        }
+      };
+
+      ws.send(JSON.stringify(sessionReadyMessage));
+      console.log(`✅ session_ready с ICE конфигурацией отправлен контроллеру (session: ${sessionId})`);
+      console.log(`🧊 ICE серверов: ${iceConfiguration.iceServers?.length || 0}`);
+      
+    } catch (error) {
+      console.log(`❌ Ошибка отправки session_ready: ${error.message}`);
+      return false;
+    }
+
+    // 2. ЗАТЕМ находим робота и пересылаем запрос
     const robotClient = this.clientManager.getTargetClient('controller');
     console.log(`🔍 Поиск робота для запроса видео...`);
-    console.log(`📊 Подключенные клиенты: ${JSON.stringify(this.clientManager.getStats())}`);
     
     if (!robotClient) {
       console.log('❌ Робот не подключен для запроса видео');
       ws.send(JSON.stringify({
         type: 'webrtc-signal',
         signalType: 'error',
+        sessionId: sessionId,
         data: { message: 'Robot not connected' }
       }));
       return false;
@@ -226,12 +257,7 @@ class WebRTCSignalingService {
     
     console.log(`✅ Робот найден: ${robotClient.clientType}, readyState: ${robotClient.readyState}`);
 
-    // Создаем или используем sessionId
-    const sessionId = data.sessionId || `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    
-    console.log(`📹 Обрабатываем запрос видео с sessionId: ${sessionId}`);
-
-    // Переслать запрос роботу с sessionId (новый формат)
+    // Переслать запрос роботу с sessionId
     const requestMessage = {
       type: 'webrtc-signal',
       signalType: 'request_video',
@@ -242,7 +268,6 @@ class WebRTCSignalingService {
     try {
       robotClient.send(JSON.stringify(requestMessage));
       console.log(`📹 Запрос видео переслан роботу с sessionId: ${sessionId}`);
-      console.log(`📤 Отправленное сообщение: ${JSON.stringify(requestMessage)}`);
     } catch (error) {
       console.log(`❌ Ошибка отправки сообщения роботу: ${error.message}`);
       return false;

@@ -1541,14 +1541,12 @@ MonoBehaviour:
   m_GameObject: {fileID: 616446316}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 02a137ce09fdcec4ab3ecdd8c7e3441d, type: 3}
+  m_Script: {fileID: 11500000, guid: 2e1b450bceb3055449a80d396a558ce9, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
   _videoOutput: {fileID: 716621347}
-  _showDebugInfo: 1
-  _maxTexturePoolSize: 9
-  _enableFrameSkipping: 1
-  _targetFPS: 24
+  _enableDebugLogs: 1
+  _reconnectAttempts: 3
 --- !u!1 &625014177
 GameObject:
   m_ObjectHideFlags: 0

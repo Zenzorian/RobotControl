@@ -11,17 +11,20 @@ namespace Scripts.Services
         public bool IsConnected{get; private set;}
         
         public event Action<string> OnMessageReceived;
-       
+
+        public const string SERVER_ADDRESS = "193.169.240.11";
+        public const int SERVER_PORT = 8080;
+
         private readonly IStatus _status;
         private WebSocket _webSocket;
         private bool _disposed = false;
         private ConcurrentQueue<Action> _mainThreadActions = new ConcurrentQueue<Action>();
 
-        public WebSocketClient(string serverAddress, int serverPort, IStatus status)
+        public WebSocketClient(IStatus status)
         {
             _status = status;
 
-            _webSocket = new WebSocket($"ws://{serverAddress}:{serverPort}");
+            _webSocket = new WebSocket($"ws://{SERVER_ADDRESS}:{SERVER_PORT}");
                 
             _webSocket.OnOpen += OnWebSocketOpen;
             _webSocket.OnMessage += OnWebSocketMessage;
@@ -54,11 +57,6 @@ namespace Scripts.Services
                     if (message == "REGISTERED!CONTROLLER") 
                     {               
                         _status.Info("Контроллер успешно зарегистрирован");
-                    }
-                    else if (message.StartsWith("VIDEO_FRAME!"))
-                    {
-                        // Видео кадры обрабатываются OptimizedRobotVideoService
-                        // Просто передаем сообщение подписчикам
                     }
                     else if (message.StartsWith("ERROR!"))
                     {

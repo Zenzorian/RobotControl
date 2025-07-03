@@ -17,7 +17,7 @@ namespace Scripts.UI
         [SerializeField] private float _refreshInterval = 2f;
         [SerializeField] private bool _showDetailedStats = true;
         
-        private IOptimizedRobotVideoService _videoService;
+        private IWebRTCVideoService _videoService;
         private float _lastRefreshTime;
         private bool _autoRefresh = true;
         
@@ -53,16 +53,16 @@ namespace Scripts.UI
         
         private void FindVideoService()
         {
-            // Попытка найти сервис видео
-            var videoServiceObj = GameObject.FindObjectOfType<OptimizedRobotVideoService>();
+            // Попытка найти WebRTC видео сервис
+            var videoServiceObj = GameObject.FindObjectOfType<WebRTCVideoService>();
             if (videoServiceObj != null)
             {
                 _videoService = videoServiceObj;
-                Debug.Log("VideoStatusDisplay: Найден OptimizedRobotVideoService");
+                Debug.Log("VideoStatusDisplay: Найден WebRTCVideoService");
             }
             else
             {
-                Debug.LogWarning("VideoStatusDisplay: OptimizedRobotVideoService не найден!");
+                Debug.LogWarning("VideoStatusDisplay: WebRTCVideoService не найден!");
             }
         }
         
@@ -83,14 +83,14 @@ namespace Scripts.UI
                 FindVideoService();
                 if (_videoService == null)
                 {
-                    UpdateStatusText("❌ Видео сервис не найден!");
+                    UpdateStatusText("❌ WebRTC видео сервис не найден!");
                     return;
                 }
             }
             
             if (_showDetailedStats)
             {
-                string detailedStatus = _videoService.GetVideoStatusReport();
+                string detailedStatus = _videoService.GetStatusReport();
                 UpdateStatusText(detailedStatus);
             }
             else
@@ -104,10 +104,11 @@ namespace Scripts.UI
         {
             if (_videoService == null) return "Сервис не найден";
             
-            return $"🎥 Видео: {(_videoService.VideoReceived ? "✅ Получено" : "❌ Нет")}\n" +
+            return $"🎥 WebRTC: {(_videoService.IsConnected ? "✅ Подключено" : "❌ Отключено")}\n" +
+                   $"📺 Стриминг: {(_videoService.IsStreaming ? "✅ Активен" : "❌ Неактивен")}\n" +
                    $"📊 FPS: {_videoService.CurrentFPS:F1}\n" +
                    $"🎬 Кадров: {_videoService.ReceivedFrames}\n" +
-                   $"📨 Сообщений: {_videoService.TotalMessages}";
+                   $"📏 Байт: {_videoService.BytesReceived:N0}";
         }
         
         private void UpdateStatusText(string status)
@@ -122,9 +123,9 @@ namespace Scripts.UI
         {
             if (_videoService != null)
             {
-                _videoService.ResetStats();
+                _videoService.ResetStatistics();
                 RefreshStatus();
-                Debug.Log("Статистика видео сброшена");
+                Debug.Log("Статистика WebRTC сброшена");
             }
         }
         
@@ -133,7 +134,7 @@ namespace Scripts.UI
             _autoRefresh = enabled;
         }
         
-        public void SetVideoService(IOptimizedRobotVideoService videoService)
+        public void SetVideoService(IWebRTCVideoService videoService)
         {
             _videoService = videoService;
         }
@@ -149,11 +150,21 @@ namespace Scripts.UI
             RefreshStatus();
         }
         
-        public void ForceVideoStatusLog()
+        public void StartConnection()
         {
             if (_videoService != null)
             {
-                _videoService.ForceVideoStatusLog();
+                _videoService.StartConnection();
+                Debug.Log("Запуск WebRTC соединения...");
+            }
+        }
+        
+        public void StopConnection()
+        {
+            if (_videoService != null)
+            {
+                _videoService.StopConnection();
+                Debug.Log("Остановка WebRTC соединения...");
             }
         }
         

@@ -1,6 +1,5 @@
 using Scripts.Services;
 using Scripts.UI.Markers;
-using WebSocketSharp;
 using UnityEngine;
 using Scripts.UI;
 using System.Collections;
@@ -14,7 +13,7 @@ namespace Scripts.Infrastructure
         private IStatus _status;
         private IWebSocketClient _webSocketClient;
         private ICommandSenderService _commandSenderService;
-        private IOptimizedRobotVideoService _videoService;
+        private IWebRTCVideoService _videoService;
 
         //private const string SERVER_THUMBPRINT = "65863CD6EF075DF79E002205FCAB4FC2B4DD2223E6B3CAB7B8730EE307E79B57";
         //private float _logStatusTimer = 0f;
@@ -54,7 +53,7 @@ namespace Scripts.Infrastructure
         {
             if (_webSocketClient != null) _webSocketClient.Dispose();
             
-            _webSocketClient = new WebSocketClient(serverAddress, serverPort, _status);
+            _webSocketClient = new WebSocketClient(_status);
 
             _commandSenderService = new CommandSenderService(_inputManagerService, _webSocketClient, _status);
             
@@ -66,36 +65,50 @@ namespace Scripts.Infrastructure
         {
             Debug.Log("InitializeVideoService вызван");
             
-            // Ищем OptimizedRobotVideoService компонент на сцене
-            var videoServiceComponent = FindFirstObjectByType<OptimizedRobotVideoService>();
+            // Ищем WebRTCVideoService компонент на сцене
+            var videoServiceComponent = FindFirstObjectByType<WebRTCVideoService>();
             if (videoServiceComponent != null)
             {
-                Debug.Log($"OptimizedRobotVideoService найден: {videoServiceComponent.name}");
+                Debug.Log($"WebRTCVideoService найден: {videoServiceComponent.name}");
                 _videoService = videoServiceComponent; // Используем как интерфейс
                 
                 try
                 {
                     Debug.Log("Вызываем _videoService.Initialize...");
-                    _videoService.Initialize(_webSocketClient, _status);
+                    _videoService.Initialize(_webSocketClient);
                     Debug.Log("_videoService.Initialize завершен успешно");
                     
-                    // Подписываемся на события видео
-                    _videoService.OnVideoConnectionChanged += OnVideoConnectionChanged;
-                    _status.Info("Оптимизированный видео сервис инициализирован");
+                    // Ищем RawImage компонент для отображения видео
+                    var videoDisplay = FindFirstObjectByType<UnityEngine.UI.RawImage>();
+                    if (videoDisplay != null)
+                    {
+                        Debug.Log($"🎬 RawImage найден: {videoDisplay.name}");
+                        _videoService.SetVideoOutput(videoDisplay);
+                        _status.Info($"Видео выход подключен: {videoDisplay.name}");
+                    }
+                    else
+                    {
+                        Debug.LogWarning("🎬 ⚠️ RawImage компонент не найден! Видео не будет отображаться");
+                        _status.Warning("RawImage не найден - видео не будет отображаться");
+                    }
                     
-                    // Видео будет запрошено автоматически в OptimizedRobotVideoService
-                    // при получении REGISTERED!CONTROLLER сообщения
+                    // Подписываемся на события видео
+                    _videoService.OnConnectionStateChanged += OnVideoConnectionChanged;
+                    _status.Info("WebRTC видео сервис инициализирован");
+                    
+                    // Автоматически запускаем WebRTC соединение после регистрации
+                    StartCoroutine(StartWebRTCAfterRegistration());
                 }
                 catch (System.Exception ex)
                 {
-                    _status.Error($"Ошибка инициализации видеосервиса: {ex.Message}");
+                    _status.Error($"Ошибка инициализации WebRTC видеосервиса: {ex.Message}");
                     Debug.LogError($"InitializeVideoService error: {ex}");
                 }
             }
             else
             {
-                _status.Error("OptimizedRobotVideoService не найден на сцене");
-                Debug.LogError("OptimizedRobotVideoService не найден на сцене! Создайте GameObject с компонентом OptimizedRobotVideoService.");
+                _status.Error("WebRTCVideoService не найден на сцене");
+                Debug.LogError("WebRTCVideoService не найден на сцене! Создайте GameObject с компонентом WebRTCVideoService.");
             }
         }
 
@@ -103,11 +116,32 @@ namespace Scripts.Infrastructure
         {
             if (isConnected)
             {
-                _status.Info("Видеопоток подключен");
+                _status.Info("WebRTC видеопоток подключен");
             }
             else
             {
-                _status.Info("Видеопоток отключен");
+                _status.Info("WebRTC видеопоток отключен");
+            }
+        }
+        
+        private IEnumerator StartWebRTCAfterRegistration()
+        {
+            // Ждем короткое время для завершения инициализации
+            yield return new WaitForSeconds(1f);
+            
+            // Проверяем что WebSocket подключен
+            if (_webSocketClient != null && _webSocketClient.IsConnected)
+            {
+                // Запускаем WebRTC соединение
+                if (_videoService != null)
+                {
+                    _videoService.StartConnection();
+                    _status.Info("WebRTC соединение запускается...");
+                }
+            }
+            else
+            {
+                _status.Warning("WebSocket не подключен, WebRTC соединение отложено");
             }
         }
         private void InitializeSettingsHandlerService()
