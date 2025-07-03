@@ -157,7 +157,7 @@ namespace Scripts.Services
             var requestMessage = new WebRTCSignalMessage
             {
                 type = "webrtc-signal",
-                signal_type = "request_video",
+                signalType = "request_video",
                 sessionId = _currentSessionId,
                 data = "{\"clientType\":\"unity-controller\"}"
             };
@@ -667,14 +667,14 @@ namespace Scripts.Services
                     return;
                 }
                 
-                LogDebug($"✅ Parsed message - type: '{basicMessage.type}', signal_type: '{basicMessage.signal_type}'");
+                LogDebug($"✅ Parsed message - type: '{basicMessage.type}', signalType: '{basicMessage.signalType}'");
                 
                 if (basicMessage.type == "webrtc_signal" || basicMessage.type == "webrtc-signal")
                 {
                     _webrtcSignalsReceived++;
-                    LogDebug($"🎯 WebRTC Signal #{_webrtcSignalsReceived}: {basicMessage.signal_type}");
+                    LogDebug($"🎯 WebRTC Signal #{_webrtcSignalsReceived}: {basicMessage.signalType}");
                     
-                    if (string.IsNullOrEmpty(basicMessage.signal_type))
+                    if (string.IsNullOrEmpty(basicMessage.signalType))
                     {
                         LogError("❌ Signal type пуст в WebRTC сообщении");
                         return;
@@ -683,7 +683,7 @@ namespace Scripts.Services
                     string dataJson = null;
                     
                     // Парсим данные в зависимости от типа сигнала
-                    switch (basicMessage.signal_type)
+                    switch (basicMessage.signalType)
                     {
                         case "offer":
                         case "answer":
@@ -692,7 +692,7 @@ namespace Scripts.Services
                             {
                                 dataJson = JsonUtility.ToJson(offerMessage.data);
                                 
-                                if (basicMessage.signal_type == "offer")
+                                if (basicMessage.signalType == "offer")
                                 {
                                     _offersReceived++;
                                     LogDebug($"🔥 OFFER RECEIVED #{_offersReceived}");
@@ -735,18 +735,18 @@ namespace Scripts.Services
                             return; // Не передаем в HandleWebRTCSignal
                             
                         default:
-                            LogError($"❌ Неизвестный тип WebRTC сигнала: {basicMessage.signal_type}");
+                            LogError($"❌ Неизвестный тип WebRTC сигнала: {basicMessage.signalType}");
                             return;
                     }
                     
                     if (!string.IsNullOrEmpty(dataJson))
                     {
-                        LogDebug($"✅ Successfully parsed {basicMessage.signal_type} data: {dataJson.Length} chars");
-                        HandleWebRTCSignal(basicMessage.signal_type, dataJson);
+                        LogDebug($"✅ Successfully parsed {basicMessage.signalType} data: {dataJson.Length} chars");
+                        HandleWebRTCSignal(basicMessage.signalType, dataJson);
                     }
                     else
                     {
-                        LogError($"❌ Пустые данные для сигнала {basicMessage.signal_type}");
+                        LogError($"❌ Пустые данные для сигнала {basicMessage.signalType}");
                     }
                 }
                 else
@@ -769,7 +769,7 @@ namespace Scripts.Services
             var message = new WebRTCSignalMessage
             {
                 type = "webrtc-signal",
-                signal_type = signalType,
+                signalType = signalType,
                 sessionId = _currentSessionId,
                 data = data
             };
@@ -879,7 +879,7 @@ namespace Scripts.Services
     public class BasicWebRTCMessage
     {
         public string type;
-        public string signal_type;
+        public string signalType;
         // data поле не включаем - будем парсить его отдельно
     }
 
@@ -888,7 +888,7 @@ namespace Scripts.Services
     public class WebRTCOfferAnswerMessage
     {
         public string type;
-        public string signal_type;
+        public string signalType;
         public SdpData data;
     }
 
@@ -897,7 +897,7 @@ namespace Scripts.Services
     public class WebRTCSignalMessage
     {
         public string type;
-        public string signal_type;
+        public string signalType;
         public string sessionId;
         public string data;
     }
@@ -906,7 +906,7 @@ namespace Scripts.Services
     public class WebRTCIceCandidateMessage
     {
         public string type;
-        public string signal_type;
+        public string signalType;
         public IceCandidateData data;
     }
     
@@ -915,6 +915,7 @@ namespace Scripts.Services
     {
         public string type;
         public string sdp;
+        public long timestamp;
     }
     
     [Serializable]
@@ -947,7 +948,7 @@ namespace Scripts.Services
     public class SessionReadyMessage
     {
         public string type;
-        public string signal_type;
+        public string signalType;
         public string sessionId;
         public SessionReadyData data;
     }
