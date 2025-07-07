@@ -39,7 +39,7 @@ namespace Scripts.Services
             if (_commandTimer >= _commandInterval)
             {
                 _commandTimer = 0f;
-                SendCommand();
+                //SendCommand();
             }
         }
 

@@ -658,6 +658,28 @@ namespace Scripts.Services
                     return;
                 }
                 
+                // Обработка специальных сообщений с префиксами
+                if (message.StartsWith("REGISTERED!"))
+                {
+                    LogDebug($"✅ Получено сообщение регистрации: {message}");
+                    return; // Просто игнорируем, регистрация обрабатывается в WebSocketClient
+                }
+                
+                if (message.StartsWith("TELEMETRY!"))
+                {
+                    string telemetryJson = message.Substring("TELEMETRY!".Length);
+                    LogDebug($"📊 Получена телеметрия: {telemetryJson.Substring(0, Math.Min(100, telemetryJson.Length))}...");
+                    // Можно добавить обработку телеметрии здесь если нужно
+                    return;
+                }
+                
+                // Проверяем, что это JSON сообщение (начинается с '{')
+                if (!message.StartsWith("{"))
+                {
+                    LogDebug($"⚠️ Сообщение не является JSON, игнорируем: {message.Substring(0, Math.Min(50, message.Length))}...");
+                    return;
+                }
+                
                 // Сначала парсим базовую структуру
                 var basicMessage = JsonUtility.FromJson<BasicWebRTCMessage>(message);
                 
