@@ -33,6 +33,7 @@ class WebRTCSignalingService {
       this.stats.signalsProcessed++;
       
       console.log(`📡 WebRTC сигнал: ${signalType} от ${ws.clientType}`);
+      console.log(`📡 Полное содержимое сообщения: ${JSON.stringify(data, null, 2)}`);
       
       switch (signalType) {
         case 'offer':
