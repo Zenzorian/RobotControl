@@ -65,21 +65,30 @@ class MessageHandler {
     }
     
     const { signalType, sessionId, data } = message;
-    // Для offer/answer/ice-candidate не оборачиваем в {sessionId, data}, а передаем data напрямую
-    if (["offer", "answer", "ice-candidate"].includes(signalType)) {
-      return await this.webrtcSignalingService.handleWebRTCSignal(ws, signalType, data);
-    } else {
-      // Для остальных сигналов (например, session_ready) сохраняем старую логику
-      let dataToSend;
-      if (typeof data === 'string') {
-        dataToSend = data;
-      } else if (data && typeof data === 'object') {
-        dataToSend = { ...data };
-      } else {
-        dataToSend = data;
+    
+    // Для всех WebRTC сигналов передаем полную структуру с sessionId
+    let signalData = {
+      sessionId: sessionId
+    };
+    
+    // Если data является JSON строкой (как для answer от Unity), парсим её
+    if (typeof data === 'string') {
+      try {
+        const parsedData = JSON.parse(data);
+        signalData = { ...signalData, ...parsedData };
+      } catch (e) {
+        // Если не JSON, добавляем как есть
+        signalData.data = data;
       }
-      return await this.webrtcSignalingService.handleWebRTCSignal(ws, signalType, { sessionId, data: dataToSend });
+    } else if (data && typeof data === 'object') {
+      // Если data объект, разворачиваем его
+      signalData = { ...signalData, ...data };
+    } else {
+      // Для других типов данных
+      signalData.data = data;
     }
+    
+    return await this.webrtcSignalingService.handleWebRTCSignal(ws, signalType, signalData);
   }
 
   handleCommand(ws, targetClient, message) {

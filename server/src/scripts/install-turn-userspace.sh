@@ -120,7 +120,7 @@ relay-ip=193.169.240.11
 # Аутентификация
 fingerprint
 lt-cred-mech
-user=robotclient:robotclient2024
+user=robotclient:robotclient2025
 realm=robotclient.local
 server-name=robotclient.local
 
@@ -301,7 +301,7 @@ main() {
     echo "  - Порт UDP: 13478"
     echo "  - Порт TLS: 15349"
     echo "  - Пользователь: robotclient"
-    echo "  - Пароль: robotclient2024"
+    echo "  - Пароль: robotclient2025"
     echo ""
     echo "📝 Логи: ~/turnserver-robot/logs/turnserver.log"
     echo ""
