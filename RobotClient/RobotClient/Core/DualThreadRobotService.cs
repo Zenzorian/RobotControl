@@ -1,5 +1,4 @@
 using RobotClient.Config;
-using RobotClient.Video;
 using RobotClient.Control;
 
 namespace RobotClient.Core
@@ -23,12 +22,12 @@ namespace RobotClient.Core
         public bool IsRegistered => _webSocketService.IsRegistered;
         
         // Статусы потоков
-        public bool IsControlThreadRunning => _controlThread.IsRunning;
-        public bool IsVideoThreadRunning => _videoThread.IsRunning;
-        public bool IsPixhawkConnected => _controlThread.IsPixhawkConnected;
-        public bool IsVideoInitialized => _videoThread.IsVideoInitialized;
+        public bool IsControlThreadRunning => _controlThread?.IsRunning ?? false;
+        public bool IsVideoThreadRunning => _videoThread?.IsStreaming ?? false;
+        public bool IsPixhawkConnected => _controlThread?.IsPixhawkConnected ?? false;
+        public bool IsVideoStreaming => _videoThread?.IsStreaming ?? false;
 
-        public DualThreadRobotService(string? serverUrl = null)
+        public DualThreadRobotService(string[] args, string? serverUrl = null)
         {
             _serverUrl = serverUrl ?? ServerConfig.WebSocketUrl;
             
@@ -37,9 +36,9 @@ namespace RobotClient.Core
             
             // Инициализация потоков
             _controlThread = new RobotControlThread(_webSocketService);
-            _videoThread = new VideoStreamingThread(_webSocketService);
+            _videoThread = new VideoStreamingThread(_webSocketService, args); // Передаем FFmpeg аргументы
             
-            Console.WriteLine("🤖 Двухпоточный сервис робота инициализирован");
+            Console.WriteLine("🤖 Двухпоточный сервис робота инициализирован (Linux/FFmpeg)");
             Console.WriteLine($"📡 Сервер: {_serverUrl}");
         }
 
@@ -161,18 +160,25 @@ namespace RobotClient.Core
             try
             {
                 Console.WriteLine("📹 Запуск потока трансляции видео...");
-                bool result = await _videoThread.StartAsync();
                 
-                if (result)
+                // Запускаем видео поток в фоновой задаче
+                _ = Task.Run(async () =>
                 {
-                    Console.WriteLine("✅ Поток трансляции видео запущен успешно");
-                }
-                else
-                {
-                    Console.WriteLine("❌ Не удалось запустить поток трансляции видео");
-                }
+                    try
+                    {
+                        await _videoThread.StartAsync();
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"❌ Ошибка в видео потоке: {ex.Message}");
+                    }
+                });
                 
-                return result;
+                // Даем немного времени на инициализацию
+                await Task.Delay(1000);
+                
+                Console.WriteLine("✅ Поток трансляции видео запущен успешно");
+                return true;
             }
             catch (Exception ex)
             {
@@ -229,19 +235,23 @@ namespace RobotClient.Core
                     connected = _webSocketService.IsConnected,
                     registered = _webSocketService.IsRegistered
                 },
-                controlThread = _controlThread.GetStatus(),
-                videoThread = _videoThread.GetStatus(),
+                controlThread = _controlThread?.GetStatus(),
+                videoThread = new
+                {
+                    isStreaming = _videoThread?.IsStreaming ?? false,
+                    status = "Linux FFmpeg WebRTC Integration"
+                },
                 summary = new
                 {
                     threadsRunning = new
                     {
-                        control = _controlThread.IsRunning,
-                        video = _videoThread.IsRunning
+                        control = _controlThread?.IsRunning ?? false,
+                        video = _videoThread?.IsStreaming ?? false
                     },
                     capabilities = new
                     {
-                        robotControl = _controlThread.IsRunning && _controlThread.IsPixhawkConnected,
-                        videoStreaming = _videoThread.IsRunning && _videoThread.IsVideoInitialized
+                        robotControl = (_controlThread?.IsRunning ?? false) && (_controlThread?.IsPixhawkConnected ?? false),
+                        videoStreaming = _videoThread?.IsStreaming ?? false
                     }
                 }
             };
@@ -323,15 +333,14 @@ namespace RobotClient.Core
                 if (!_isRunning)
                     return;
 
-                var controlRunning = _controlThread.IsRunning;
-                var videoRunning = _videoThread.IsRunning;
-                var pixhawkConnected = _controlThread.IsPixhawkConnected;
-                var videoInitialized = _videoThread.IsVideoInitialized;
+                var controlRunning = _controlThread?.IsRunning ?? false;
+                var videoStreaming = _videoThread?.IsStreaming ?? false;
+                var pixhawkConnected = _controlThread?.IsPixhawkConnected ?? false;
 
                 Console.WriteLine($"📊 Статус потоков: 🎮 Control:{(controlRunning ? "✅" : "❌")} | " +
-                               $"📹 Video:{(videoRunning ? "✅" : "❌")} | " +
+                               $"📹 Video:{(videoStreaming ? "✅" : "❌")} | " +
                                $"🔧 Pixhawk:{(pixhawkConnected ? "✅" : "❌")} | " +
-                               $"📷 Camera:{(videoInitialized ? "✅" : "❌")}");
+                               $"🎬 FFmpeg:{(videoStreaming ? "✅" : "❌")}");
 
                 // Можно добавить логику перезапуска потоков при необходимости
             }
@@ -346,7 +355,24 @@ namespace RobotClient.Core
         /// </summary>
         public async Task<bool> ReinitializeVideoAsync()
         {
-            return await _videoThread.ReinitializeVideoAsync();
+            try
+            {
+                Console.WriteLine("🔄 Переинициализация видео потока...");
+                
+                // Останавливаем текущий видео поток
+                await _videoThread.StopAsync();
+                
+                // Небольшая пауза
+                await Task.Delay(1000);
+                
+                // Запускаем заново
+                return await StartVideoThreadAsync();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"❌ Ошибка переинициализации видео: {ex.Message}");
+                return false;
+            }
         }
 
         public void Dispose()

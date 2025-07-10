@@ -126,6 +126,26 @@ namespace Scripts.Services
                 Debug.LogWarning($"Попытка отправить сообщение при неактивном соединении: {message}");
             }
         }
+
+        /// <summary>
+        /// Отправка JSON сообщения (для WebRTC сигналинга)
+        /// </summary>
+        public void SendJsonMessage<T>(T messageObject)
+        {
+            try
+            {
+                string json = JsonUtility.ToJson(messageObject);
+                Debug.Log($"📤 Отправляемый JSON: {json}");
+                SendMessage(json);
+            }
+            catch (Exception ex)
+            {
+                _mainThreadActions.Enqueue(() => {
+                    _status.Error($"Ошибка отправки JSON: {ex.Message}");
+                });
+                Debug.LogError($"Ошибка отправки JSON сообщения: {ex.Message}");
+            }
+        }
         
         public void Update()
         {

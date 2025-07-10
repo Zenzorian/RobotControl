@@ -1,315 +1,516 @@
-using RobotClient.Config;
+using RobotClient.Control;
 using RobotClient.Video;
+using SIPSorcery.Net;
+using SIPSorcery.SIP.App;
+using System.Net;
+using System.Threading;
+using System.Text.Json;
+using Microsoft.Extensions.Logging;
 
 namespace RobotClient.Core
 {
     /// <summary>
-    /// Поток трансляции видео - управление камерой, WebRTC сигналинг, видео потоки
+    /// Поток трансляции видео - управление FFmpeg, WebRTC сигналинг, видео потоки (Linux)
     /// </summary>
     public class VideoStreamingThread : IDisposable
     {
-        private readonly WebSocketClient _webSocketService;
-        private readonly WebRTC _webRTCService;
-        private readonly VideoStreaming _videoStreamingService;
-        
-        private bool _isRunning;
+        private readonly WebSocketClient _webSocketClient;
+        private RTCPeerConnection? _peerConnection;
+        private FFmpegProcessing? _ffmpegProcessing;
         private CancellationTokenSource? _cancellationTokenSource;
-        private Task? _streamingTask;
-        private Timer? _statusTimer;
-
-        public bool IsRunning => _isRunning;
-        public bool IsVideoInitialized { get; private set; }
-        public bool IsWebRTCActive => _webRTCService.IsActive;
-        public int ActiveSessions => _webRTCService.ActiveSessionsCount;
-
-        public VideoStreamingThread(WebSocketClient webSocketService)
+        private readonly ILogger<VideoStreamingThread> _logger;
+        private string? _currentSessionId;
+        private bool _isDisposed = false;
+        private readonly string[] _ffmpegArgs;
+        
+        // События для уведомления о состоянии видео
+        public event Action<bool>? VideoStreamingStateChanged;
+        public event Action<string>? Error;
+        
+        public bool IsStreaming { get; private set; }
+        
+        public VideoStreamingThread(WebSocketClient webSocketClient, string[]? ffmpegArgs = null)
         {
-            _webSocketService = webSocketService ?? throw new ArgumentNullException(nameof(webSocketService));
-            _videoStreamingService = new VideoStreaming();
-            _webRTCService = new WebRTC(_webSocketService, _videoStreamingService);
+            _webSocketClient = webSocketClient ?? throw new ArgumentNullException(nameof(webSocketClient));
+            _ffmpegArgs = ffmpegArgs ?? Array.Empty<string>();
+            _logger = LoggerFactory.Create(builder => builder.AddConsole()).CreateLogger<VideoStreamingThread>();
             
-            Console.WriteLine("📹 Поток трансляции видео инициализирован");
+            // Подписываемся на сообщения WebSocket для обработки WebRTC сигналинга
+            _webSocketClient.MessageReceived += HandleWebSocketMessage;
+            
+            Console.WriteLine("📹 VideoStreamingThread создан для Linux/FFmpeg");
         }
 
         /// <summary>
-        /// Запуск потока трансляции видео
+        /// Запуск потока видео трансляции
         /// </summary>
-        public async Task<bool> StartAsync()
+        public async Task StartAsync(CancellationToken cancellationToken = default)
         {
             try
             {
-                if (_isRunning)
-                {
-                    Console.WriteLine("⚠️ Поток трансляции видео уже запущен");
-                    return true;
-                }
-
-                Console.WriteLine("🚀 Запуск потока трансляции видео...");
-
-                // 1. Инициализация видео сервиса
-                Console.WriteLine("📹 Инициализация видео сервиса...");
-                IsVideoInitialized = await _videoStreamingService.InitializeAsync();
-                if (!IsVideoInitialized)
-                {
-                    Console.WriteLine("⚠️ Видео сервис не инициализирован (камера не найдена), но поток будет запущен");
-                }
-                else
-                {
-                    Console.WriteLine("✅ Видео сервис инициализирован");
-                }
-
-                // 2. Запуск WebRTC сервиса
-                Console.WriteLine("🎥 Запуск WebRTC сервиса...");
-                if (!await _webRTCService.StartAsync())
-                {
-                    Console.WriteLine("⚠️ WebRTC сервис не запущен, но поток будет продолжать работать");
-                }
-                else
-                {
-                    Console.WriteLine($"✅ WebRTC сервис запущен, активен: {_webRTCService.IsActive}");
-                }
-
-                // 3. Запуск фонового потока видео
-                _cancellationTokenSource = new CancellationTokenSource();
-                _streamingTask = Task.Run(() => StreamingLoopAsync(_cancellationTokenSource.Token));
-
-                // 4. Запуск таймера статуса видео
-                _statusTimer = new Timer(async _ => await SendVideoStatusAsync(), 
-                                       null, TimeSpan.Zero, TimeSpan.FromSeconds(60));
-
-                _isRunning = true;
-                Console.WriteLine("🟢 Поток трансляции видео запущен успешно!");
-
-                return true;
+                _cancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                
+                Console.WriteLine("📹 Запуск видео потока (Linux/FFmpeg)...");
+                
+                // Инициализация FFmpeg
+                await InitializeFFmpegAsync();
+                
+                Console.WriteLine("✅ Видео поток готов к WebRTC соединениям");
+                
+                // Ожидаем отмены
+                await Task.Delay(Timeout.Infinite, _cancellationTokenSource.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                Console.WriteLine("🛑 Видео поток остановлен");
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"❌ Ошибка запуска потока трансляции видео: {ex.Message}");
-                await StopAsync();
-                return false;
+                Console.WriteLine($"❌ Ошибка в видео потоке: {ex.Message}");
+                Error?.Invoke(ex.Message);
+                throw;
             }
         }
 
         /// <summary>
-        /// Остановка потока трансляции видео
+        /// Инициализация FFmpeg для захвата видео
+        /// </summary>
+        private async Task InitializeFFmpegAsync()
+        {
+            try
+            {
+                Console.WriteLine("🎬 Инициализация FFmpeg для захвата видео...");
+                
+                _ffmpegProcessing = new FFmpegProcessing();
+                await _ffmpegProcessing.Initialize(_ffmpegArgs);
+                
+                Console.WriteLine("✅ FFmpeg инициализирован успешно");
+                Console.WriteLine($"📺 Видео формат: {_ffmpegProcessing.videoFormat.Name()}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"❌ Ошибка инициализации FFmpeg: {ex.Message}");
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Обработка WebSocket сообщений для WebRTC сигналинга
+        /// </summary>
+        private async void HandleWebSocketMessage(string message)
+        {
+            try
+            {
+                if (message.StartsWith("{"))
+                {
+                    var jsonDoc = JsonDocument.Parse(message);
+                    if (jsonDoc.RootElement.TryGetProperty("type", out var typeElement) && 
+                        typeElement.GetString() == "webrtc-signal")
+                    {
+                        if (jsonDoc.RootElement.TryGetProperty("signalType", out var signalTypeElement))
+                        {
+                            var signalType = signalTypeElement.GetString();
+                            if (signalType == "request_video")
+                            {
+                                // Для request_video устанавливаем session ID от Unity
+                                var sessionId = jsonDoc.RootElement.GetProperty("sessionId").GetString();
+                                _currentSessionId = sessionId;
+                                Console.WriteLine($"📹 Получен запрос видео от Unity, session ID: {sessionId}");
+                                await HandleVideoRequest();
+                            }
+                            else
+                            {
+                                await HandleWebRTCSignal(jsonDoc.RootElement);
+                            }
+                        }
+                        else
+                        {
+                            await HandleWebRTCSignal(jsonDoc.RootElement);
+                        }
+                    }
+                }
+                else if (message == "REQUEST_VIDEO")
+                {
+                    await HandleVideoRequest();
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"❌ Ошибка обработки WebSocket сообщения: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Обработка запроса видео от контроллера
+        /// </summary>
+        private async Task HandleVideoRequest()
+        {
+            try
+            {
+                Console.WriteLine("📹 Получен запрос видео от контроллера");
+                await CreateWebRTCOffer();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"❌ Ошибка создания WebRTC offer: {ex.Message}");
+                Error?.Invoke(ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Создание WebRTC offer с FFmpeg RTP потоком
+        /// </summary>
+        private async Task CreateWebRTCOffer()
+        {
+            try
+            {
+                if (_peerConnection != null)
+                {
+                    Console.WriteLine("⚠️ WebRTC соединение уже существует, закрываем предыдущее");
+                    _peerConnection.Close("new connection");
+                    _peerConnection = null;
+                }
+
+                if (_ffmpegProcessing?.listener == null)
+                {
+                    throw new InvalidOperationException("FFmpeg RTP listener не инициализирован");
+                }
+
+                Console.WriteLine("🎯 Создание WebRTC offer с FFmpeg потоком...");
+                
+                // Создаем новое WebRTC соединение
+                var config = new RTCConfiguration
+                {
+                    iceServers = new List<RTCIceServer>
+                    {
+                        new RTCIceServer { urls = "stun:stun.l.google.com:19302" },
+                        // TURN сервер будет добавлен через запрос ICE конфигурации
+                    }
+                };
+
+                _peerConnection = new RTCPeerConnection(config);
+                
+                // Session ID уже должен быть установлен в HandleWebSocketMessage
+                if (string.IsNullOrEmpty(_currentSessionId))
+                {
+                    _currentSessionId = Guid.NewGuid().ToString();
+                    Console.WriteLine($"🆔 Создан новый session ID: {_currentSessionId}");
+                }
+                else
+                {
+                    Console.WriteLine($"🆔 Используется session ID от Unity: {_currentSessionId}");
+                }
+
+                // Настраиваем обработчики событий
+                _peerConnection.onicecandidate += async (candidate) =>
+                {
+                    if (candidate != null)
+                    {
+                        Console.WriteLine($"🧊 Отправка ICE кандидата: {candidate.candidate}");
+                        await SendICECandidate(candidate);
+                    }
+                };
+
+                _peerConnection.onconnectionstatechange += (state) =>
+                {
+                    Console.WriteLine($"🔗 WebRTC состояние соединения: {state}");
+                    IsStreaming = state == RTCPeerConnectionState.connected;
+                    VideoStreamingStateChanged?.Invoke(IsStreaming);
+                    
+                    if (state == RTCPeerConnectionState.connected)
+                    {
+                        // Подключаем FFmpeg RTP поток к WebRTC
+                        ConnectFFmpegToWebRTC();
+                    }
+                };
+
+                _peerConnection.onicegatheringstatechange += (state) =>
+                {
+                    Console.WriteLine($"🧊 ICE gathering состояние: {state}");
+                };
+
+                // Добавляем видео трек с форматом от FFmpeg
+              
+                var videoTrack = new MediaStreamTrack(SDPMediaTypesEnum.video, false, 
+                    new List<SDPAudioVideoMediaFormat> { _ffmpegProcessing.videoFormat }, 
+                    MediaStreamStatusEnum.SendOnly);
+                    
+                _peerConnection.addTrack(videoTrack);
+                Console.WriteLine($"📺 Добавлен видео трек: {_ffmpegProcessing.videoFormat.Name()}");
+                
+
+                // Создаем offer
+                var offer = _peerConnection.createOffer();
+                Task setLocalResult = _peerConnection.setLocalDescription(offer);
+                
+                if (setLocalResult == Task.CompletedTask)
+                {
+                    Console.WriteLine("✅ Local description установлен");
+                }
+                else
+                {
+                    Console.WriteLine($"⚠️ Предупреждение setLocalDescription: {setLocalResult}");
+                }
+
+                // Отправляем offer через WebSocket
+                var offerMessage = new
+                {
+                    type = "webrtc-signal",
+                    signalType = "offer",
+                    sessionId = _currentSessionId,
+                    data = new
+                    {
+                        sdp = offer.sdp,
+                        type = offer.type.ToString().ToLower(),
+                        sessionId = _currentSessionId
+                    }
+                };
+
+                await _webSocketClient.SendJsonMessageAsync(offerMessage);
+                Console.WriteLine("✅ WebRTC offer отправлен");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"❌ Ошибка создания WebRTC offer: {ex.Message}");
+                Error?.Invoke(ex.Message);
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Подключение FFmpeg RTP потока к WebRTC
+        /// </summary>
+        private void ConnectFFmpegToWebRTC()
+        {
+            try
+            {
+                if (_ffmpegProcessing?.listener == null || _peerConnection == null)
+                {
+                    Console.WriteLine("❌ FFmpeg listener или PeerConnection не готовы");
+                    return;
+                }
+
+                Console.WriteLine("🔗 Подключение FFmpeg RTP потока к WebRTC...");
+
+                // Подписываемся на RTP пакеты от FFmpeg и отправляем их через WebRTC
+                _ffmpegProcessing.listener.OnRtpPacketReceived += (ep, mediaType, rtpPacket) =>
+                {
+                    if (mediaType == SDPMediaTypesEnum.video && _peerConnection != null)
+                    {
+                        try
+                        {
+                            // Отправляем RTP пакет через WebRTC
+                            _peerConnection.SendRtpRaw(mediaType, rtpPacket.Payload, rtpPacket.Header.Timestamp, rtpPacket.Header.MarkerBit, (int)rtpPacket.Header.PayloadType);
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"⚠️ Ошибка отправки RTP пакета: {ex.Message}");
+                        }
+                    }
+                };
+
+                Console.WriteLine("✅ FFmpeg поток подключен к WebRTC");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"❌ Ошибка подключения FFmpeg к WebRTC: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Обработка WebRTC сигналинга
+        /// </summary>
+        private async Task HandleWebRTCSignal(JsonElement signalElement)
+        {
+            try
+            {
+                if (!signalElement.TryGetProperty("signalType", out var signalTypeElement))
+                    return;
+
+                var signalType = signalTypeElement.GetString();
+                var sessionId = signalElement.GetProperty("sessionId").GetString();
+                var data = signalElement.GetProperty("data");
+
+                if (sessionId != _currentSessionId)
+                {
+                    Console.WriteLine($"⚠️ Получен сигнал для неизвестной сессии: {sessionId}");
+                    return;
+                }
+
+                Console.WriteLine($"📡 WebRTC сигнал: {signalType}");
+
+                switch (signalType)
+                {
+                    case "answer":
+                        HandleWebRTCAnswer(data);
+                        break;
+                    case "ice-candidate":
+                        HandleWebRTCIceCandidate(data);
+                        break;
+                    default:
+                        Console.WriteLine($"❓ Неизвестный WebRTC сигнал: {signalType}");
+                        break;
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"❌ Ошибка обработки WebRTC сигнала: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Обработка WebRTC answer
+        /// </summary>
+        private void HandleWebRTCAnswer(JsonElement answerData)
+        {
+            try
+            {
+                if (_peerConnection == null)
+                {
+                    Console.WriteLine("❌ PeerConnection не инициализирован для answer");
+                    return;
+                }
+
+                var sdp = answerData.GetProperty("sdp").GetString();
+                var answer = new RTCSessionDescriptionInit
+                {
+                    type = RTCSdpType.answer,
+                    sdp = sdp
+                };
+
+                var setRemoteResult = _peerConnection.setRemoteDescription(answer);
+                
+                if (setRemoteResult == SetDescriptionResultEnum.OK)
+                {
+                    Console.WriteLine("✅ Remote description установлен");
+                    Console.WriteLine("✅ WebRTC answer обработан");
+                }
+                else
+                {
+                    Console.WriteLine($"⚠️ Ошибка setRemoteDescription: {setRemoteResult}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"❌ Ошибка обработки WebRTC answer: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Обработка ICE кандидата
+        /// </summary>
+        private void HandleWebRTCIceCandidate(JsonElement candidateData)
+        {
+            try
+            {
+                if (_peerConnection == null)
+                {
+                    Console.WriteLine("❌ PeerConnection не инициализирован для ICE кандидата");
+                    return;
+                }
+
+                var candidate = candidateData.GetProperty("candidate").GetString();
+                var sdpMid = candidateData.GetProperty("sdpMid").GetString();
+                var sdpMLineIndex = (ushort)candidateData.GetProperty("sdpMLineIndex").GetInt32();
+
+                var iceCandidateInit = new RTCIceCandidateInit
+                {
+                    candidate = candidate,
+                    sdpMid = sdpMid,
+                    sdpMLineIndex = sdpMLineIndex
+                };
+
+                try
+                {
+                    _peerConnection.addIceCandidate(iceCandidateInit);
+                    Console.WriteLine($"🧊 ICE кандидат добавлен: {candidate}");
+                }
+                catch (Exception icEx)
+                {
+                    Console.WriteLine($"⚠️ Предупреждение при добавлении ICE кандидата: {icEx.Message}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"❌ Ошибка обработки ICE кандидата: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Отправка ICE кандидата
+        /// </summary>
+        private async Task SendICECandidate(RTCIceCandidate candidate)
+        {
+            try
+            {
+                var candidateMessage = new
+                {
+                    type = "webrtc-signal",
+                    signalType = "ice-candidate",
+                    sessionId = _currentSessionId,
+                    data = new
+                    {
+                        candidate = candidate.candidate,
+                        sdpMid = candidate.sdpMid,
+                        sdpMLineIndex = (int)candidate.sdpMLineIndex,
+                        sessionId = _currentSessionId
+                    }
+                };
+
+                await _webSocketClient.SendJsonMessageAsync(candidateMessage);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"❌ Ошибка отправки ICE кандидата: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Остановка видео потока
         /// </summary>
         public async Task StopAsync()
         {
             try
             {
-                if (!_isRunning)
-                    return;
-
-                Console.WriteLine("🛑 Остановка потока трансляции видео...");
-                _isRunning = false;
-
-                // Остановка таймера статуса
-                _statusTimer?.Dispose();
-                _statusTimer = null;
-
-                // Остановка фонового потока
+                Console.WriteLine("🛑 Остановка видео потока...");
+                
                 _cancellationTokenSource?.Cancel();
                 
-                if (_streamingTask != null)
+                if (_peerConnection != null)
                 {
-                    try
-                    {
-                        await _streamingTask;
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        // Ожидаемое исключение при отмене
-                    }
+                    _peerConnection.Close("stopping");
+                    _peerConnection = null;
                 }
-
-                // Остановка WebRTC сервиса
-                await _webRTCService.StopAsync();
-                Console.WriteLine("✅ WebRTC сервис остановлен");
-
-                // Остановка видео сервиса
-                await _videoStreamingService.StopAsync();
-                Console.WriteLine("✅ Видео сервис остановлен");
-
-                _cancellationTokenSource?.Dispose();
-                _cancellationTokenSource = null;
-                _streamingTask = null;
-                IsVideoInitialized = false;
-
-                Console.WriteLine("🔴 Поток трансляции видео остановлен");
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"❌ Ошибка остановки потока трансляции видео: {ex.Message}");
-            }
-        }
-
-        /// <summary>
-        /// Главный цикл трансляции видео
-        /// </summary>
-        private async Task StreamingLoopAsync(CancellationToken cancellationToken)
-        {
-            Console.WriteLine("🔄 Запущен главный цикл трансляции видео");
-
-            try
-            {
-                while (!cancellationToken.IsCancellationRequested && _isRunning)
-                {
-                    // Проверка состояния WebSocket подключения
-                    if (!_webSocketService.IsConnected)
-                    {
-                        Console.WriteLine("⚠️ WebSocket отключен, видео поток в режиме ожидания...");
-                        await Task.Delay(10000, cancellationToken);
-                        continue;
-                    }
-
-                    // Проверка и переинициализация видео сервиса при необходимости
-                    if (!IsVideoInitialized)
-                    {
-                        Console.WriteLine("🔄 Попытка переинициализации видео сервиса...");
-                        IsVideoInitialized = await _videoStreamingService.InitializeAsync();
-                        
-                        if (IsVideoInitialized)
-                        {
-                            Console.WriteLine("✅ Видео сервис переинициализирован");
-                        }
-                        else
-                        {
-                            await Task.Delay(30000, cancellationToken); // Ждем дольше при неудаче
-                            continue;
-                        }
-                    }
-
-                    // Проверка активности WebRTC сессий
-                    if (_webRTCService.IsActive && _webRTCService.ActiveSessionsCount > 0)
-                    {
-                        // Видео активно транслируется
-                        Console.WriteLine($"🔄 WebRTC активен, сессий: {_webRTCService.ActiveSessionsCount}");
-                        await Task.Delay(5000, cancellationToken);
-                    }
-                    else
-                    {
-                        // Нет активных сессий, ждем дольше
-                        Console.WriteLine($"💤 WebRTC: активен={_webRTCService.IsActive}, сессий={_webRTCService.ActiveSessionsCount}");
-                        await Task.Delay(10000, cancellationToken);
-                    }
-                }
-            }
-            catch (OperationCanceledException)
-            {
-                Console.WriteLine("🛑 Главный цикл трансляции видео остановлен");
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"❌ Ошибка в главном цикле трансляции видео: {ex.Message}");
-            }
-        }
-
-        /// <summary>
-        /// Отправка статуса видео трансляции
-        /// </summary>
-        private async Task SendVideoStatusAsync()
-        {
-            try
-            {
-                if (!_webSocketService.IsRegistered || !_isRunning)
-                    return;
-
-                var videoStatus = new
-                {
-                    type = "robot_video_status",
-                    timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                    video = new
-                    {
-                        initialized = IsVideoInitialized,
-                        webRTC = new
-                        {
-                            active = _webRTCService.IsActive,
-                            activeSessions = _webRTCService.ActiveSessionsCount
-                        },
-                        streaming = new
-                        {
-                            available = IsVideoInitialized && _webRTCService.IsActive
-                        },
-                        thread = new
-                        {
-                            running = _isRunning,
-                            threadId = Environment.CurrentManagedThreadId
-                        }
-                    }
-                };
-
-                await _webSocketService.SendTelemetryAsync(videoStatus);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"⚠️ Ошибка отправки статуса видео: {ex.Message}");
-            }
-        }
-
-        /// <summary>
-        /// Получение статуса потока видео
-        /// </summary>
-        public object GetStatus()
-        {
-            return new
-            {
-                isRunning = _isRunning,
-                videoInitialized = IsVideoInitialized,
-                webRTC = new
-                {
-                    active = _webRTCService.IsActive,
-                    activeSessions = _webRTCService.ActiveSessionsCount
-                },
-                streaming = new
-                {
-                    available = IsVideoInitialized && _webRTCService.IsActive
-                }
-            };
-        }
-
-        /// <summary>
-        /// Принудительная переинициализация видео сервиса
-        /// </summary>
-        public async Task<bool> ReinitializeVideoAsync()
-        {
-            try
-            {
-                Console.WriteLine("🔄 Принудительная переинициализация видео сервиса...");
                 
-                // Остановка текущего видео сервиса
-                await _videoStreamingService.StopAsync();
-                IsVideoInitialized = false;
-
-                // Пауза перед переинициализацией
-                await Task.Delay(2000);
-
-                // Повторная инициализация
-                IsVideoInitialized = await _videoStreamingService.InitializeAsync();
+                if (_ffmpegProcessing != null)
+                {
+                    _ffmpegProcessing.exitCts?.Cancel();
+                    _ffmpegProcessing = null;
+                }
                 
-                if (IsVideoInitialized)
-                {
-                    Console.WriteLine("✅ Видео сервис успешно переинициализирован");
-                    return true;
-                }
-                else
-                {
-                    Console.WriteLine("❌ Не удалось переинициализировать видео сервис");
-                    return false;
-                }
+                IsStreaming = false;
+                VideoStreamingStateChanged?.Invoke(false);
+                
+                Console.WriteLine("✅ Видео поток остановлен");
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"❌ Ошибка переинициализации видео сервиса: {ex.Message}");
-                return false;
+                Console.WriteLine($"❌ Ошибка остановки видео потока: {ex.Message}");
             }
         }
 
+        /// <summary>
+        /// Освобождение ресурсов
+        /// </summary>
         public void Dispose()
         {
-            _ = StopAsync();
-            _statusTimer?.Dispose();
-            _cancellationTokenSource?.Dispose();
-            _webRTCService?.Dispose();
+            if (!_isDisposed)
+            {
+                _webSocketClient.MessageReceived -= HandleWebSocketMessage;
+                StopAsync().Wait();
+                _cancellationTokenSource?.Dispose();
+                _isDisposed = true;
+            }
         }
     }
-} 
+}

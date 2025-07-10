@@ -33,7 +33,7 @@ namespace RobotClient
             Console.WriteLine();
 
             // Создание и запуск двухпоточного сервиса робота
-            using var dualThreadRobotService = new DualThreadRobotService(serverUrl);
+            using var dualThreadRobotService = new DualThreadRobotService(args,serverUrl);
 
             try
             {
