@@ -241,7 +241,7 @@ class WebRTCSignalingService {
       return false;
     }
 
-    // 2. ЗАТЕМ находим робота и пересылаем запрос
+    // 2. ЗАТЕМ находим робота и пересылаем запрос с ICE конфигурацией
     const robotClient = this.clientManager.getTargetClient('controller');
     console.log(`🔍 Поиск робота для запроса видео...`);
     
@@ -258,13 +258,33 @@ class WebRTCSignalingService {
     
     console.log(`✅ Робот найден: ${robotClient.clientType}, readyState: ${robotClient.readyState}`);
 
-    // Переслать запрос роботу с sessionId
+    // 3. Отправляем запрос видео роботу с ICE конфигурацией в data
+    const iceConfiguration = this.getICEConfiguration();
+    
     const requestMessage = {
       type: 'webrtc-signal',
       signalType: 'request_video',
       sessionId: sessionId,
-      data: data || {}
+      data: {
+        ...data, // Оригинальные данные от контроллера
+        iceConfiguration: iceConfiguration // Добавляем ICE конфигурацию
+      }
     };
+
+    // Логируем ICE конфигурацию для робота
+    console.log(`🧊 ICE конфигурация включена в request_video для робота (session: ${sessionId})`);
+    console.log(`🔧 ICE серверов: ${iceConfiguration.iceServers?.length || 0}`);
+    
+    const turnServers = iceConfiguration.iceServers?.filter(server => 
+      server.urls?.includes('turn:') || server.urls?.includes('turns:')
+    ) || [];
+    
+    if (turnServers.length > 0) {
+      console.log(`🔐 TURN серверы для робота:`);
+      turnServers.forEach(server => {
+        console.log(`   - ${server.urls} (user: ${server.username})`);
+      });
+    }
 
     try {
       robotClient.send(JSON.stringify(requestMessage));
