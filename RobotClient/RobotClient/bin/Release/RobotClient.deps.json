@@ -1,12 +1,12 @@
 {
   "runtimeTarget": {
-    "name": ".NETCoreApp,Version=v8.0/linux-x64",
+    "name": ".NETCoreApp,Version=v8.0/linux-arm64",
     "signature": ""
   },
   "compilationOptions": {},
   "targets": {
     ".NETCoreApp,Version=v8.0": {},
-    ".NETCoreApp,Version=v8.0/linux-x64": {
+    ".NETCoreApp,Version=v8.0/linux-arm64": {
       "RobotClient/1.0.0": {
         "dependencies": {
           "MAVLink": "1.0.8",
@@ -266,19 +266,19 @@
       "runtime.fedora.23-x64.runtime.native.System.Security.Cryptography.OpenSsl/4.3.2": {},
       "runtime.fedora.24-x64.runtime.native.System.Security.Cryptography.OpenSsl/4.3.2": {},
       "runtime.linux-arm.runtime.native.System.IO.Ports/9.0.7": {},
-      "runtime.linux-arm64.runtime.native.System.IO.Ports/9.0.7": {},
+      "runtime.linux-arm64.runtime.native.System.IO.Ports/9.0.7": {
+        "native": {
+          "runtimes/linux-arm64/native/libSystem.IO.Ports.Native.so": {
+            "fileVersion": "0.0.0.0"
+          }
+        }
+      },
       "runtime.linux-bionic-arm64.runtime.native.System.IO.Ports/9.0.7": {},
       "runtime.linux-bionic-x64.runtime.native.System.IO.Ports/9.0.7": {},
       "runtime.linux-musl-arm.runtime.native.System.IO.Ports/9.0.7": {},
       "runtime.linux-musl-arm64.runtime.native.System.IO.Ports/9.0.7": {},
       "runtime.linux-musl-x64.runtime.native.System.IO.Ports/9.0.7": {},
-      "runtime.linux-x64.runtime.native.System.IO.Ports/9.0.7": {
-        "native": {
-          "runtimes/linux-x64/native/libSystem.IO.Ports.Native.so": {
-            "fileVersion": "0.0.0.0"
-          }
-        }
-      },
+      "runtime.linux-x64.runtime.native.System.IO.Ports/9.0.7": {},
       "runtime.maccatalyst-arm64.runtime.native.System.IO.Ports/9.0.7": {},
       "runtime.maccatalyst-x64.runtime.native.System.IO.Ports/9.0.7": {},
       "runtime.native.System/4.3.0": {
