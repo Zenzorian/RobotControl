@@ -195,11 +195,11 @@ else
     warn "Node.js сервер НЕ запущен"
 fi
 
-# Проверка порта 8080
-if netstat -tuln 2>/dev/null | grep -q ":8080"; then
-    log "Порт 8080 (Node.js) слушает"
+# Проверка порта 80
+if netstat -tuln 2>/dev/null | grep -q ":80"; then
+    log "Порт 80 (Node.js) слушает"
 else
-    warn "Порт 8080 НЕ слушает"
+    warn "Порт 80 НЕ слушает"
 fi
 echo ""
 
