@@ -303,7 +303,7 @@ namespace RobotClient.Core
                 {
                     await SendStatusTelemetryAsync();
                     MonitorThreads();
-                }, null, TimeSpan.Zero, TimeSpan.FromSeconds(45));
+                }, null, TimeSpan.Zero, TimeSpan.FromSeconds(20));
 
                 // Ожидаем сигнала остановки
                 try

@@ -1,0 +1,1175 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Robot WebRTC Video Test</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <div class="controls">
+            <button id="connectBtn" onclick="startConnection()">🔌 Підключитися до робота</button>
+            <button id="disconnectBtn" onclick="stopConnection()" disabled>🔌 Відключитися</button>
+            <button id="requestVideoBtn" onclick="requestVideo()" disabled>📹 Запросити відео</button>
+            <button id="stopVideoBtn" onclick="stopVideo()" disabled>⏹️ Зупинити відео</button>
+            <button id="turnToggleBtn" onclick="toggleTurnMode()" title="Перемикання примусового використання TURN серверів">🔄 TURN ВКЛ</button>
+            <button id="gamepadConnectBtn" onclick="connectGamepad()">🎮 Підключити геймпад</button>
+        </div>
+        
+        <div class="stats">
+            <div class="stat-item">
+                <div class="stat-value" id="connectionStatus">❌</div>
+                <div class="stat-label">WebSocket підключення</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-value" id="robotStatus">❌</div>
+                <div class="stat-label">Статус робота</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-value" id="iceStatus">❌</div>
+                <div class="stat-label">TURN/ICE статус</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-value" id="videoStatus">❌</div>
+                <div class="stat-label">Відеопотік</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-value" id="turnStatus">❌</div>
+                <div class="stat-label">TURN сервер</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-value" id="pixhawkStatus">❌</div>
+                <div class="stat-label">Pixhawk</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-value" id="gamepadStatus">❌</div>
+                <div class="stat-label" id="gamepadLabel"></div>
+            </div>
+        </div>
+        
+        <div class="video-container">
+            <video id="videoElement" autoplay muted playsinline>
+                <p>Ваш браузер не підтримує відео елемент.</p>
+            </video>
+        </div>
+        <div style="width:100%; display:flex; justify-content:center; margin-bottom: 10px;">
+            <button id="fullscreenBtn" onclick="toggleFullscreen()">🖵 На весь екран</button>
+        </div>
+        
+        <div id="framesBar"><span id="framesCount">0</span> отримано кадрів</div>
+        <div class="status" id="statusLog">
+            <div class="status-info">📋 Журнал підключення:</div>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let pc = null;
+        let localVideo = null;
+        let statsInterval = null;
+        let frameCount = 0;
+        let registrationTimeout = null;
+
+        const statusLog = document.getElementById('statusLog');
+        const videoElement = document.getElementById('videoElement');
+        const connectBtn = document.getElementById('connectBtn');
+        const disconnectBtn = document.getElementById('disconnectBtn');
+        const requestVideoBtn = document.getElementById('requestVideoBtn');
+        const stopVideoBtn = document.getElementById('stopVideoBtn');
+        const turnToggleBtn = document.getElementById('turnToggleBtn');
+        const gamepadConnectBtn = document.getElementById('gamepadConnectBtn');
+        
+        // TURN режим активирован по умолчанию
+        let turnModeEnabled = false;
+
+        // Логируем состояние при загрузке
+        window.addEventListener('load', () => {
+            log('🔄 TURN режим вимкнено за замовчуванням - використовується автоматичний вибір', 'info');
+            updateTurnButtonAppearance();
+        });
+
+        // WebRTC configuration - будет обновлена с сервера
+        let rtcConfig = {
+            iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' }
+            ]
+        };
+
+        // Загрузка ICE конфигурации с сервера (включая TURN серверы)
+        async function loadICEConfiguration() {
+            try {
+                log('🧊 Завантаження ICE конфігурації з сервера...');
+                
+                // Попробуем разные URL
+                const urls = [
+                    'http://localhost:8080/api/ice/config',
+                    'http://193.169.240.11:8080/api/ice/config',
+                    window.location.origin + '/api/ice/config'
+                ];
+                
+                let iceConfig = null;
+                let lastError = null;
+                
+                for (const url of urls) {
+                    try {
+                        log(`🔗 Спробуємо завантажити з: ${url}`);
+                        const response = await fetch(url, {
+                            method: 'GET',
+                            headers: {
+                                'Accept': 'application/json',
+                                'Content-Type': 'application/json'
+                            },
+                            timeout: 5000
+                        });
+                        
+                        if (response.ok) {
+                            iceConfig = await response.json();
+                            log(`✅ ICE конфігурація завантажена з: ${url}`);
+                            break;
+                        } else {
+                            lastError = `HTTP ${response.status}: ${response.statusText}`;
+                            log(`⚠️ ${url}: ${lastError}`);
+                        }
+                    } catch (error) {
+                        lastError = error.message;
+                        log(`⚠️ ${url}: ${lastError}`);
+                        continue;
+                    }
+                }
+                
+                // Якщо не вдалося завантажити, використовуємо fallback з TURN
+                if (!iceConfig) {
+                    log('⚠️ Не вдалося завантажити ICE конфігурацію з сервера, використовуємо fallback');
+                    iceConfig = {
+                        iceServers: [
+                            // STUN серверы
+                            { urls: 'stun:stun.l.google.com:19302' },
+                            { urls: 'stun:stun1.l.google.com:19302' },
+                            { urls: 'stun:stun.cloudflare.com:3478' },
+                            
+                            // TURN сервер (нові порти)
+                            {
+                                urls: 'turn:193.169.240.11:13478',
+                                username: 'robotclient',
+                                credential: 'robotclient2024'
+                            },
+                            {
+                                urls: 'turn:193.169.240.11:13478?transport=tcp',
+                                username: 'robotclient',
+                                credential: 'robotclient2024'
+                            }
+                        ],
+                        iceCandidatePoolSize: 10
+                    };
+                    log('✅ Fallback конфігурація з TURN сервером готова');
+                }
+                
+                rtcConfig = iceConfig;
+                
+                // Логуємо знайдені сервери
+                let stunCount = 0;
+                let turnCount = 0;
+                
+                iceConfig.iceServers?.forEach(server => {
+                    if (server.urls?.startsWith('turn:') || server.urls?.startsWith('turns:')) {
+                        turnCount++;
+                        log(`🔄 TURN сервер: ${server.urls} (користувач: ${server.username})`);
+                    } else if (server.urls?.startsWith('stun:')) {
+                        stunCount++;
+                        log(`🧊 STUN сервер: ${server.urls}`);
+                    }
+                });
+                
+                log(`✅ ICE конфігурація завантажена: ${stunCount} STUN + ${turnCount} TURN серверів`, 'connected');
+                
+                if (turnCount > 0) {
+                    updateStatus('iceStatus', '🔄 TURN готовий', true);
+                } else {
+                    updateStatus('iceStatus', '🧊 STUN тільки', false);
+                }
+                
+                return true;
+                
+            } catch (error) {
+                log(`❌ Помилка завантаження ICE конфігурації: ${error.message}`, 'error');
+                return false;
+            }
+        }
+
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const className = `status-${type}`;
+            const logEntry = `<div class="${className}">[${timestamp}] ${message}</div>`;
+            statusLog.innerHTML += logEntry;
+            statusLog.scrollTop = statusLog.scrollHeight;
+            console.log(`[${timestamp}] ${message}`);
+        }
+
+        function updateStatus(element, value, isConnected = false) {
+            const statusElement = document.getElementById(element);
+            statusElement.textContent = value;
+            statusElement.parentElement.style.borderLeftColor = isConnected ? '#4CAF50' : '#f44336';
+        }
+
+        async function startConnection() {
+            try {
+                log('🚀 Починаємо підключення до робота...');
+                connectBtn.disabled = true;
+                
+                // КРИТИЧЕСКИ ВАЖНО: Завантажуємо ICE конфігурацію ПЕРШИМ ДЕЛОМ!
+                log('🔧 Пріоритет: завантаження ICE конфігурації...');
+                const iceLoaded = await loadICEConfiguration();
+                
+                if (!iceLoaded) {
+                    log('❌ Не вдалося завантажити ICE конфігурацію, використовуємо fallback', 'error');
+                    // Використовуємо мінімальну TURN конфігурацію
+                    rtcConfig = {
+                        iceServers: [
+                            { urls: 'stun:stun.l.google.com:19302' },
+                            { urls: 'stun:stun.cloudflare.com:3478' },
+                            {
+                                urls: 'turn:193.169.240.11:13478',
+                                username: 'robotclient',
+                                credential: 'robotclient2024'
+                            }
+                        ],
+                        iceCandidatePoolSize: 10
+                    };
+                    log('✅ Fallback ICE конфігурація встановлена з TURN сервером');
+                }
+                
+                // Фінальна перевірка ICE конфігурації перед створенням з'єднання
+                const turnCount = rtcConfig.iceServers?.filter(s => s.urls?.startsWith('turn')).length || 0;
+                log(`✅ ICE готовий: ${rtcConfig.iceServers?.length || 0} серверів (TURN: ${turnCount})`);
+                
+                // TURN режим включено за замовчуванням
+                if (turnModeEnabled && turnCount > 0) {
+                    log('🔄 TURN режим АКТИВЕН за замовчуванням: примусове використання TURN relay');
+                    rtcConfig.iceTransportPolicy = 'relay'; // Примусово використовувати TURN
+                    log('🔄 Установлено режим relay-only для примусового використання TURN');
+                } else if (turnCount > 0) {
+                    log('🔄 TURN сервери доступні, автоматичний вибір');
+                    // Видаляємо iceTransportPolicy для автоматичного вибору
+                    delete rtcConfig.iceTransportPolicy;
+                }
+                
+                // Створення WebSocket з'єднання
+                const wsUrl = `ws://193.169.240.11:80`;
+                ws = new WebSocket(wsUrl);
+                
+                ws.onopen = () => {
+                    log('✅ WebSocket підключено', 'connected');
+                    updateStatus('connectionStatus', '🔗 WebSocket', true);
+                    
+                    // Реєструємося як клієнт керування
+                    log('📝 Реєструємося як клієнт керування...');
+                    ws.send('REGISTER!CONTROLLER');
+                    
+                    // Установлюємо таймаут реєстрації
+                    registrationTimeout = setTimeout(() => {
+                        if (ws && ws.readyState === WebSocket.OPEN) {
+                            log('❌ Таймаут реєстрації - сервер не відповів', 'error');
+                            updateStatus('connectionStatus', '❌ Таймаут реєстрації');
+                        }
+                    }, 5000);
+                };
+                
+                ws.onmessage = async (event) => {
+                    const message = event.data;
+                    log(`📥 Отримано повідомлення: ${message}`);
+                    
+                    // Перевіряємо, це відповідь на реєстрацію або повідомлення з префіксом
+                    if (message === 'REGISTERED!CONTROLLER') {
+                        // Скасовуємо таймаут реєстрації
+                        if (registrationTimeout) {
+                            clearTimeout(registrationTimeout);
+                            registrationTimeout = null;
+                        }
+                        
+                        log('✅ Успішно зареєстровані як керуючий', 'connected');
+                        updateStatus('connectionStatus', '🎮 Керуючий', true);
+                        
+                        // Показуємо панель керування та кнопки відео
+                        // robotControls.style.display = 'block'; // Видалено
+                        requestVideoBtn.disabled = false;
+                        
+                        // Автоматично запитуємо відео через невелику затримку
+                        setTimeout(() => {
+                            if (ws && ws.readyState === WebSocket.OPEN) {
+                                requestVideo();
+                            }
+                        }, 1000);
+                    } else if (message.startsWith('TELEMETRY!')) {
+                        // Телеметрія від робота
+                        try {
+                            const jsonData = message.substring(10); // Видаляємо "TELEMETRY!"
+                            const data = JSON.parse(jsonData);
+                            handleTelemetry(data);
+                            log(`📊 Телеметрія: ${data.type}`, 'info');
+                        } catch (e) {
+                            log(`❌ Помилка парсингу телеметрії: ${e.message}`, 'error');
+                        }
+                    } else if (message.startsWith('{')) {
+                        // JSON повідомлення (WebRTC сигналінг)
+                        try {
+                            const data = JSON.parse(message);
+                            await handleWebSocketMessage(data);
+                        } catch (e) {
+                            log(`❌ Помилка парсингу JSON: ${e.message}`, 'error');
+                        }
+                    } else {
+                        // Інші текстові повідомлення
+                        log(`📄 Текстове повідомлення: ${message}`);
+                    }
+                };
+                
+                ws.onerror = (error) => {
+                    log(`❌ Помилка WebSocket: ${error}`, 'error');
+                    updateStatus('connectionStatus', '❌ Помилка');
+                };
+                
+                ws.onclose = () => {
+                    log('🔌 WebSocket відключено');
+                    updateStatus('connectionStatus', '❌ Відключено');
+                    connectBtn.disabled = false;
+                    disconnectBtn.disabled = true;
+                };
+                
+            } catch (error) {
+                log(`❌ Помилка підключення: ${error.message}`, 'error');
+                connectBtn.disabled = false;
+            }
+        }
+
+        let currentSessionId = null;
+
+        async function initWebRTC(sessionId) {
+            try {
+                log('🎬 Ініціалізація WebRTC...');
+                currentSessionId = sessionId;
+                
+                // КРИТИЧЕСКИ ВАЖНО: Переконуємось, що ICE конфігурація завантажена!
+                if (!rtcConfig || !rtcConfig.iceServers || rtcConfig.iceServers.length < 5) {
+                    log('⚠️ ICE конфігурація не завантажена або неповна, примусова завантаження...');
+                    await loadICEConfiguration();
+                }
+                
+                // Логуємо фінальну ICE конфігурацію перед створенням RTCPeerConnection
+                log(`🧊 Створення RTCPeerConnection з ${rtcConfig.iceServers?.length || 0} ICE серверами:`);
+                rtcConfig.iceServers?.forEach((server, index) => {
+                    if (server.urls?.startsWith('turn:') || server.urls?.startsWith('turns:')) {
+                        log(`   ${index + 1}. TURN: ${server.urls} (user: ${server.username})`);
+                    } else {
+                        log(`   ${index + 1}. STUN: ${server.urls}`);
+                    }
+                });
+                
+                // ДІАГНОСТИКА: Перевіряємо ICE конфігурацію в момент створення
+                log('🔬 ДІАГНОСТИКА RTCPeerConnection:');
+                log(`   RTCPeerConnection.constructor отримує: ${JSON.stringify(rtcConfig, null, 2)}`);
+                
+                // Створення peer connection
+                pc = new RTCPeerConnection(rtcConfig);
+                
+                // Негайно перевіряємо, що браузер отримав
+                const actualConfig = pc.getConfiguration();
+                log('🔬 Фактична конфігурація RTCPeerConnection:');
+                log(`   Браузер зберіг: ${JSON.stringify(actualConfig, null, 2)}`);
+                
+                // Перевіряємо, що TURN сервери дійсно завантажені з credentials
+                const turnServers = actualConfig.iceServers?.filter(s => {
+                    const urls = Array.isArray(s.urls) ? s.urls : [s.urls];
+                    return urls.some(url => url.startsWith('turn:') || url.startsWith('turns:'));
+                }) || [];
+                log(`🔬 TURN серверів у браузері: ${turnServers.length}`);
+                turnServers.forEach((server, i) => {
+                    const urls = Array.isArray(server.urls) ? server.urls : [server.urls];
+                    urls.forEach((url, j) => {
+                        if (url.startsWith('turn:') || url.startsWith('turns:')) {
+                            log(`   TURN ${i+1}.${j+1}: ${url} | user: "${server.username}" | pass: "${server.credential ? '[СКРИТО]' : 'ВІДСУТНЕ'}"`);
+                        }
+                    });
+                });
+                
+                // Обробка ICE candidates
+                pc.onicecandidate = (event) => {
+                    if (event.candidate && currentSessionId) {
+                        log('🧊 Відправляємо ICE candidate');
+                        ws.send(JSON.stringify({
+                            type: 'webrtc-signal',
+                            signalType: 'ice-candidate',
+                            sessionId: currentSessionId,
+                            data: {
+                                candidate: event.candidate.candidate,
+                                sdpMLineIndex: event.candidate.sdpMLineIndex,
+                                sdpMid: event.candidate.sdpMid
+                            }
+                        }));
+                    }
+                };
+                
+                // Обробка змін стану з'єднання
+                pc.onconnectionstatechange = () => {
+                    log(`🔗 Стан з'єднання: ${pc.connectionState}`);
+                    updateStatus('connectionStatus', `🔗 ${pc.connectionState}`, 
+                        pc.connectionState === 'connected');
+                    
+                    // ДЕТАЛЬНА ДІАГНОСТИКА при зміні стану
+                    if (pc.connectionState === 'connected' || pc.connectionState === 'failed') {
+                        setTimeout(() => analyzeConnectionDetails(), 1000);
+                    }
+                };
+                
+                pc.oniceconnectionstatechange = () => {
+                    log(`🧊 Стан ICE: ${pc.iceConnectionState}`);
+                    updateStatus('iceStatus', `🧊 ${pc.iceConnectionState}`, 
+                        pc.iceConnectionState === 'connected');
+                    
+                    // АНАЛІЗ ПРИ КОЖНОМУ ЗМІНІ ICE STATE
+                    if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed' || pc.iceConnectionState === 'failed') {
+                        setTimeout(() => analyzeICECandidatePairs(), 500);
+                    }
+                };
+
+                // Мониторинг TURN з'єднання
+                pc.onicegatheringstatechange = () => {
+                    log(`🔄 ICE збір: ${pc.iceGatheringState}`);
+                    if (pc.iceGatheringState === 'complete') {
+                        checkTurnUsage();
+                    }
+                };
+                
+                // Обробка вхідного відеопотоку
+                pc.ontrack = (event) => {
+                    log('🎥 Отримано відеопотік!', 'connected');
+                    updateStatus('videoStatus', '🎥 Активний', true);
+                    
+                    if (event.streams && event.streams[0]) {
+                        videoElement.srcObject = event.streams[0];
+                        startVideoStats();
+                        startTurnMonitoring(); // Запускаємо моніторинг TURN після отримання відео
+                    }
+                };
+                
+                disconnectBtn.disabled = false;
+                requestVideoBtn.disabled = true;
+                stopVideoBtn.disabled = false;
+                
+                log(`✅ WebRTC ініціалізовано для сесії: ${sessionId}`);
+                
+            } catch (error) {
+                log(`❌ Помилка WebRTC: ${error.message}`, 'error');
+            }
+        }
+
+        function handleTelemetry(data) {
+            // Обробка телеметрії від робота
+            if (data.type === 'robot_status') {
+                updateStatus('robotStatus', '🤖 Онлайн', true);
+                
+                // Оновлюємо статус Pixhawk, якщо є дані
+                if (data.pixhawk !== undefined) {
+                    updateStatus('pixhawkStatus', data.pixhawk ? '✈️ Підключений' : '❌ Відключений', data.pixhawk);
+                }
+                
+                // Оновлюємо статус відео, якщо є дані
+                if (data.video_status !== undefined) {
+                    updateStatus('videoStatus', data.video_status ? '🎥 Транслюється' : '📷 Очікування', data.video_status);
+                }
+            } else if (data.type === 'video_status') {
+                const isActive = data.status === 'streaming' || data.status === 'active';
+                updateStatus('videoStatus', isActive ? '🎥 Транслюється' : '📷 Готовий', isActive);
+            } else if (data.type === 'robot_dual_thread_status') {
+                updateStatus('robotStatus', data.robotStatus.webSocket.connected ? '🤖 Онлайн' : '❌ Не підключений', true);
+                updateStatus('pixhawkStatus', data.robotStatus.controlThread.pixhawk.connected ? '✈️ Підключений' : '❌ Відключений', data.robotStatus.controlThread.pixhawk.connected);
+                updateStatus('videoStatus', data.robotStatus.videoThread.isStreaming ? '🎥 Транслюється' : '�� Очікування', data.robotStatus.videoThread.isStreaming);
+            }
+        }
+
+        async function handleWebSocketMessage(data) {
+            if (data.type !== 'webrtc-signal') return;
+            
+            try {
+                switch (data.signalType) {
+                    case 'offer':
+                        log(`📥 Отримано offer від робота для сесії: ${data.sessionId}`);
+                        
+                        if (!pc) {
+                            log('❌ WebRTC не ініціалізовано для отримання offer', 'error');
+                            return;
+                        }
+                        
+                        // Зберігаємо sessionId, якщо він прийшов з offer
+                        if (data.sessionId && !currentSessionId) {
+                            currentSessionId = data.sessionId;
+                        }
+                        
+                        await pc.setRemoteDescription(new RTCSessionDescription({
+                            type: 'offer',
+                            sdp: data.data.sdp
+                        }));
+                        
+                        const answer = await pc.createAnswer();
+                        await pc.setLocalDescription(answer);
+                        
+                        log('📤 Відправляємо answer');
+                        ws.send(JSON.stringify({
+                            type: 'webrtc-signal',
+                            signalType: 'answer',
+                            sessionId: currentSessionId || data.sessionId,
+                            data: {
+                                type: 'answer',
+                                sdp: answer.sdp
+                            }
+                        }));
+                        break;
+                        
+                    case 'ice-candidate':
+                        log(`📥 Отримано ICE candidate від робота для сесії: ${data.sessionId}`);
+                        
+                        if (!pc) {
+                            log('❌ WebRTC не ініціалізовано для ICE candidate', 'error');
+                            return;
+                        }
+                        
+                        await pc.addIceCandidate(new RTCIceCandidate({
+                            candidate: data.data.candidate,
+                            sdpMLineIndex: data.data.sdpMLineIndex,
+                            sdpMid: data.data.sdpMid
+                        }));
+                        break;
+                        
+                    case 'error':
+                        log(`❌ Помилка WebRTC від робота: ${data.data.error}`, 'error');
+                        updateStatus('videoStatus', '❌ Помилка');
+                        break;
+                        
+                    case 'session-end':
+                        log(`🔚 Сесія завершена роботом: ${data.sessionId}`, 'info');
+                        updateStatus('videoStatus', '❌ Сесія завершена');
+                        if (pc) {
+                            pc.close();
+                            pc = null;
+                        }
+                        currentSessionId = null;
+                        break;
+                        
+                    default:
+                        log(`🤷 Невідомий тип сигналу: ${data.signalType}`);
+                }
+            } catch (error) {
+                log(`❌ Помилка обробки сигналу: ${error.message}`, 'error');
+            }
+        }
+
+        function startVideoStats() {
+            if (statsInterval) clearInterval(statsInterval);
+            
+            statsInterval = setInterval(() => {
+                if (pc && pc.connectionState === 'connected') {
+                    pc.getStats().then(stats => {
+                        stats.forEach(report => {
+                            if (report.type === 'inbound-rtp' && report.mediaType === 'video') {
+                                if (report.framesReceived !== undefined) {
+                                    frameCount = report.framesReceived;
+                                    updateStatus('framesCount', frameCount.toString(), frameCount > 0);
+                                }
+                            }
+                        });
+                    });
+                }
+            }, 1000);
+        }
+
+        function stopConnection() {
+            log('🛑 Відключаємось...');
+            
+            if (statsInterval) {
+                clearInterval(statsInterval);
+                statsInterval = null;
+            }
+            
+            if (registrationTimeout) {
+                clearTimeout(registrationTimeout);
+                registrationTimeout = null;
+            }
+            
+            if (pc) {
+                pc.close();
+                pc = null;
+            }
+            
+            if (ws) {
+                ws.close();
+                ws = null;
+            }
+            
+            currentSessionId = null;
+            videoElement.srcObject = null;
+            frameCount = 0;
+            
+            updateStatus('connectionStatus', '❌ Відключено');
+            updateStatus('robotStatus', '❌ Не підключений');
+            updateStatus('iceStatus', '❌ Відключено');
+            updateStatus('videoStatus', '❌ Відключено');
+            updateStatus('framesCount', '0');
+            updateStatus('pixhawkStatus', '❌ Невідомо');
+            
+            connectBtn.disabled = false;
+            disconnectBtn.disabled = true;
+            requestVideoBtn.disabled = true;
+            stopVideoBtn.disabled = true;
+            // robotControls.style.display = 'none'; // Видалено
+            
+            log('✅ Відключення завершено');
+        }
+
+        // Функції керування відео
+        function requestVideo() {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                log('❌ WebSocket не підключено', 'error');
+                return;
+            }
+            
+            log('📹 Запитуємо відеопотік...');
+            
+            // Створюємо унікальний ID сесії
+            const sessionId = 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+            
+            // Ініціалізуємо WebRTC перед запитом
+            initWebRTC(sessionId);
+            
+            // Відправляємо запит відео роботу
+            ws.send(JSON.stringify({
+                type: 'webrtc-signal',
+                signalType: 'request_video',
+                sessionId: sessionId,
+                data: {}
+            }));
+            
+            log(`🎬 Запит відео відправлено з ID сесії: ${sessionId}`);
+        }
+        
+        function stopVideo() {
+            log('⏹️ Зупиняємо відео...');
+            
+            if (pc) {
+                pc.close();
+                pc = null;
+            }
+            
+            currentSessionId = null;
+            videoElement.srcObject = null;
+            updateStatus('iceStatus', '❌ Відключено');
+            updateStatus('videoStatus', '❌ Зупинено');
+            updateStatus('framesCount', '0');
+            
+            requestVideoBtn.disabled = false;
+            stopVideoBtn.disabled = true;
+        }
+        
+        // Функції керування роботом
+        function sendCommand(command) {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                log('❌ WebSocket не підключено для відправки команди', 'error');
+                return;
+            }
+            
+            log(`🎮 Відправляємо команду: ${command}`);
+            
+            // Відправляємо команду в форматі, який робот розуміє
+            const commandMessage = `COMMAND!${JSON.stringify({
+                type: 'control',
+                command: command,
+                timestamp: Date.now()
+            })}`;
+            
+            ws.send(commandMessage);
+        }
+        
+        // Керування з клавіатури
+        document.addEventListener('keydown', (event) => {
+            // if (robotControls.style.display === 'none') return; // Видалено
+            
+            switch(event.code) {
+                // case 'ArrowUp': // Видалено
+                // case 'KeyW': // Видалено
+                //     event.preventDefault(); // Видалено
+                //     sendCommand('MOVE_FORWARD'); // Видалено
+                //     break; // Видалено
+                // case 'ArrowDown': // Видалено
+                // case 'KeyS': // Видалено
+                //     event.preventDefault(); // Видалено
+                //     sendCommand('MOVE_BACKWARD'); // Видалено
+                //     break; // Видалено
+                // case 'ArrowLeft': // Видалено
+                // case 'KeyA': // Видалено
+                //     event.preventDefault(); // Видалено
+                //     sendCommand('TURN_LEFT'); // Видалено
+                //     break; // Видалено
+                // case 'ArrowRight': // Видалено
+                // case 'KeyD': // Видалено
+                //     event.preventDefault(); // Видалено
+                //     sendCommand('TURN_RIGHT'); // Видалено
+                //     break; // Видалено
+                // case 'Space': // Видалено
+                //     event.preventDefault(); // Видалено
+                //     sendCommand('STOP'); // Видалено
+                //     break; // Видалено
+            }
+        });
+        
+        // Перемикання TURN режиму
+        function toggleTurnMode() {
+            turnModeEnabled = !turnModeEnabled;
+            
+            if (turnModeEnabled) {
+                log('🔄 TURN режим ВКЛЮЧЕНО: примусове використання TURN relay', 'connected');
+                log('   Наступне підключення буде використовувати тільки TURN сервери');
+            } else {
+                log('🔄 TURN режим ВИМКНЕНО: автоматичний вибір з\'єднання', 'info');
+                log('   Браузер буде вибирати оптимальний тип з\'єднання (STUN/TURN/пряме)');
+            }
+            
+            updateTurnButtonAppearance();
+            
+            // Якщо вже підключені, показуємо попередження
+            if (pc && pc.connectionState === 'connected') {
+                log('⚠️ Для застосування змін перепідключіться до робота', 'error');
+            }
+        }
+        
+        // Оновлення зовнішнього вигляду кнопки TURN
+        function updateTurnButtonAppearance() {
+            if (turnModeEnabled) {
+                turnToggleBtn.textContent = '🔄 TURN ВКЛ';
+                turnToggleBtn.className = '';
+                turnToggleBtn.title = 'TURN режим включено - примусове використання TURN серверів. Натисніть для вимкнення.';
+            } else {
+                turnToggleBtn.textContent = '🔄 TURN ВИМКНЕНО';
+                turnToggleBtn.className = 'disabled';
+                turnToggleBtn.title = 'TURN режим вимкнений - автоматичний вибір з\'єднання. Натисніть для включення.';
+            }
+        }
+        
+        // Авто-підключення при завантаженні сторінки (опціонально)
+        // window.addEventListener('load', startConnection);
+
+        // Покращена перевірка використання TURN сервера
+        async function checkTurnUsage() {
+            if (!pc) return;
+            
+            try {
+                const stats = await pc.getStats();
+                let usingTurn = false;
+                let connectionDetails = {
+                    local: { type: '', address: '', port: '', protocol: '' },
+                    remote: { type: '', address: '', port: '', protocol: '' }
+                };
+                let selectedPair = null;
+                
+                // Спочатку знайдемо активну пару кандидатів
+                stats.forEach(report => {
+                    if (report.type === 'candidate-pair' && 
+                        (report.state === 'succeeded' || report.nominated)) {
+                        selectedPair = report;
+                    }
+                });
+                
+                if (selectedPair) {
+                    // Знайдемо деталі кандидатів у вибраній парі
+                    stats.forEach(report => {
+                        if (report.type === 'local-candidate' && report.id === selectedPair.localCandidateId) {
+                            connectionDetails.local = {
+                                type: report.candidateType,
+                                address: report.address,
+                                port: report.port,
+                                protocol: report.protocol
+                            };
+                        }
+                        if (report.type === 'remote-candidate' && report.id === selectedPair.remoteCandidateId) {
+                            connectionDetails.remote = {
+                                type: report.candidateType,
+                                address: report.address,
+                                port: report.port,
+                                protocol: report.protocol
+                            };
+                        }
+                    });
+                    
+                    // Визначаємо тип з'єднання
+                    if (connectionDetails.local.type === 'relay' || connectionDetails.remote.type === 'relay') {
+                        usingTurn = true;
+                        const turnSide = connectionDetails.local.type === 'relay' ? 'local' : 'remote';
+                        const turnDetails = connectionDetails[turnSide];
+                        
+                        log(`🔄 TURN relay АКТИВНИЙ! (${turnDetails.protocol}:${turnDetails.address}:${turnDetails.port})`, 'connected');
+                        log(`   Локальний: ${connectionDetails.local.type} ${connectionDetails.local.address}:${connectionDetails.local.port}`);
+                        log(`   Віддалений: ${connectionDetails.remote.type} ${connectionDetails.remote.address}:${connectionDetails.remote.port}`);
+                        updateStatus('iceStatus', '🔄 TURN активний', true);
+                        
+                        // Перевіряємо, що це саме наш TURN сервер
+                        if (turnDetails.address === '193.169.240.11') {
+                            log(`✅ ПІДТВЕРДЖЕНО: використовується НАША TURN-інфраструктура!`, 'connected');
+                        }
+                        
+                    } else if (connectionDetails.local.type === 'srflx' || connectionDetails.remote.type === 'srflx') {
+                        log(`🧊 STUN з'єднання: ${connectionDetails.local.type} <-> ${connectionDetails.remote.type}`);
+                        log(`   Адреси: ${connectionDetails.local.address}:${connectionDetails.local.port} <-> ${connectionDetails.remote.address}:${connectionDetails.remote.port}`);
+                        updateStatus('iceStatus', '🧊 STUN активний', true);
+                        
+                    } else {
+                        log(`🏠 Пряме з'єднання: ${connectionDetails.local.address}:${connectionDetails.local.port} <-> ${connectionDetails.remote.address}:${connectionDetails.remote.port}`);
+                        updateStatus('iceStatus', '🏠 Пряме', true);
+                    }
+                } else {
+                    log('⚠️ Активна пара кандидатів не знайдена', 'error');
+                    updateStatus('iceStatus', '❌ Немає з\'єднання', false);
+                }
+                
+                // Загальний аналіз всіх кандидатів
+                let allCandidates = {relay: 0, srflx: 0, host: 0, total: 0};
+                stats.forEach(report => {
+                    if (report.type === 'local-candidate' || report.type === 'remote-candidate') {
+                        allCandidates.total++;
+                        allCandidates[report.candidateType] = (allCandidates[report.candidateType] || 0) + 1;
+                    }
+                });
+                
+                log(`📊 Аналіз кандидатів: всього ${allCandidates.total} (relay: ${allCandidates.relay || 0}, srflx: ${allCandidates.srflx || 0}, host: ${allCandidates.host || 0})`);
+                
+                // Попередження для TURN режиму
+                if (!usingTurn && rtcConfig.iceTransportPolicy === 'relay') {
+                    log(`⚠️ УВАГА: TURN режим включено, але TURN не використовується!`, 'error');
+                    log(`🔧 Можлива проблема з TURN сервером або credentials!`, 'error');
+                }
+                
+                // Додаткова статистика
+                logConnectionStats(stats);
+                
+            } catch (error) {
+                log(`❌ Помилка аналізу TURN: ${error.message}`, 'error');
+            }
+        }
+
+        // Логування детальної статистики з'єднання
+        function logConnectionStats(stats) {
+            let bytesReceived = 0;
+            let bytesSent = 0;
+            let packetsReceived = 0;
+            let packetsSent = 0;
+            
+            stats.forEach(report => {
+                if (report.type === 'inbound-rtp' && report.mediaType === 'video') {
+                    bytesReceived += report.bytesReceived || 0;
+                    packetsReceived += report.packetsReceived || 0;
+                } else if (report.type === 'outbound-rtp' && report.mediaType === 'video') {
+                    bytesSent += report.bytesSent || 0;
+                    packetsSent += report.packetsSent || 0;
+                }
+            });
+            
+            if (bytesReceived > 0) {
+                log(`📊 Статистика: отримано ${Math.round(bytesReceived/1024)}KB, ${packetsReceived} пакетів`);
+            }
+        }
+
+        // Періодична перевірка статусу TURN
+        function startTurnMonitoring() {
+            if (pc) {
+                // Перевіряємо кожні 5 секунд
+                const turnMonitorInterval = setInterval(() => {
+                    if (!pc || pc.connectionState === 'closed') {
+                        clearInterval(turnMonitorInterval);
+                        return;
+                    }
+                    checkTurnUsage();
+                }, 5000);
+            }
+        }
+        
+
+        
+        // СУПЕР-ДІАГНОСТИКА: Детальний аналіз RTCPeerConnection
+        async function analyzeConnectionDetails() {
+            if (!pc) return;
+            
+            try {
+                log('🔬 ДЕТАЛЬНА ДІАГНОСТИКА RTCPeerConnection:');
+                
+                // 1. Стан з'єднання
+                log(`   Стан з'єднання: ${pc.connectionState}`);
+                log(`   Стан ICE: ${pc.iceConnectionState}`);
+                log(`   Стан ICE збір: ${pc.iceGatheringState}`);
+                log(`   Стан сигналінгу: ${pc.signalingState}`);
+                
+                // 2. Перевіряємо конфігурацію TURN
+                const config = pc.getConfiguration();
+                const turnServers = config.iceServers?.filter(s => {
+                    const urls = Array.isArray(s.urls) ? s.urls : [s.urls];
+                    return urls.some(url => url && (url.startsWith('turn:') || url.startsWith('turns:')));
+                }) || [];
+                
+                log(`🔬 TURN серверів у активному конфігурації: ${turnServers.length}`);
+                turnServers.forEach((server, i) => {
+                    const urls = Array.isArray(server.urls) ? server.urls : [server.urls];
+                    urls.forEach((url, j) => {
+                        if (url && (url.startsWith('turn:') || url.startsWith('turns:'))) {
+                            log(`   TURN ${i+1}.${j+1}: ${url}`);
+                            log(`     Користувач: "${server.username || 'НЕТ'}" | Пароль: ${server.credential ? 'Є' : 'НЕТ'}`);
+                        }
+                    });
+                });
+                
+                // 3. Аналіз статистики
+                const stats = await pc.getStats();
+                analyzeStatsDetailed(stats);
+                
+            } catch (error) {
+                log(`❌ Помилка діагностики з'єднання: ${error.message}`, 'error');
+            }
+        }
+        
+        // СУПЕР-ДІАГНОСТИКА: Аналіз ICE кандидатів та пар
+        async function analyzeICECandidatePairs() {
+            if (!pc) return;
+            
+            try {
+                log('🧊 ДЕТАЛЬНИЙ АНАЛІЗ ICE КАНДИДАТІВ:');
+                const stats = await pc.getStats();
+                
+                let localCandidates = [];
+                let remoteCandidates = [];
+                let candidatePairs = [];
+                
+                // Збираємо всі кандидати та пари
+                stats.forEach(report => {
+                    if (report.type === 'local-candidate') {
+                        localCandidates.push(report);
+                    } else if (report.type === 'remote-candidate') {
+                        remoteCandidates.push(report);
+                    } else if (report.type === 'candidate-pair') {
+                        candidatePairs.push(report);
+                    }
+                });
+                
+                log(`📊 Знайдено: ${localCandidates.length} локальних, ${remoteCandidates.length} віддалених кандидатів, ${candidatePairs.length} пар`);
+                
+                // Аналіз локальних кандидатів
+                log('🏠 ЛОКАЛЬНІ КАНДИДАТИ:');
+                localCandidates.forEach((candidate, i) => {
+                    const turnInfo = candidate.candidateType === 'relay' ? 
+                        ` (TURN relay від ${candidate.relayProtocol || 'невідомо'})` : '';
+                    log(`   ${i+1}. ${candidate.candidateType} ${candidate.address}:${candidate.port} ${candidate.protocol}${turnInfo}`);
+                    
+                    // Спеціальна перевірка для TURN
+                    if (candidate.candidateType === 'relay' && candidate.address === '193.169.240.11') {
+                        log(`     ✅ ПІДТВЕРДЖЕНО: Це наш TURN сервер!`);
+                    }
+                });
+                
+                // Аналіз віддалених кандидатів  
+                log('🌐 ВІДДАЛЕНІ КАНДИДАТИ:');
+                remoteCandidates.forEach((candidate, i) => {
+                    const turnInfo = candidate.candidateType === 'relay' ? 
+                        ` (TURN relay від ${candidate.relayProtocol || 'невідомо'})` : '';
+                    log(`   ${i+1}. ${candidate.candidateType} ${candidate.address}:${candidate.port} ${candidate.protocol}${turnInfo}`);
+                    
+                    // Перевірка віддаленого TURN (від робота)
+                    if (candidate.candidateType === 'relay' && candidate.address === '193.169.240.11') {
+                        log(`     ✅ ПІДТВЕРДЖЕНО: Робот використовує наш TURN сервер!`);
+                    }
+                });
+                
+                // Аналіз пар кандидатів
+                log('🔗 ПАРИ КАНДИДАТІВ:');
+                let activePair = null;
+                candidatePairs.forEach((pair, i) => {
+                    const state = pair.state || 'unknown';
+                    const nominated = pair.nominated ? '🏆 ВИБРАНА' : '';
+                    const active = (state === 'succeeded' || pair.nominated) ? '✅' : '⏸️';
+                    
+                    log(`   ${i+1}. ${active} Стан: ${state} ${nominated}`);
+                    log(`      Відправлено: ${pair.requestsSent || 0} | Отримано: ${pair.responsesReceived || 0}`);
+                    
+                    if (state === 'succeeded' || pair.nominated) {
+                        activePair = pair;
+                        
+                        // Знайдемо деталі активної пари
+                        const localCand = localCandidates.find(c => c.id === pair.localCandidateId);
+                        const remoteCand = remoteCandidates.find(c => c.id === pair.remoteCandidateId);
+                        
+                        if (localCand && remoteCand) {
+                            log(`      🎯 АКТИВНЕ З'ЄДНАННЯ:`);
+                            log(`         Локальний: ${localCand.candidateType} ${localCand.address}:${localCand.port}`);
+                            log(`         Віддалений: ${remoteCand.candidateType} ${remoteCand.address}:${remoteCand.port}`);
+                            
+                            // Визначаємо тип з'єднання
+                            if (localCand.candidateType === 'relay' || remoteCand.candidateType === 'relay') {
+                                log(`      🔄 TURN RELAY З'ЄДНАННЯ АКТИВНЕ!`, 'connected');
+                                if (localCand.address === '193.169.240.11' || remoteCand.address === '193.169.240.11') {
+                                    log(`      ✅ Використовується НАШ TURN сервер: 193.169.240.11`, 'connected');
+                                }
+                            } else if (localCand.candidateType === 'srflx' || remoteCand.candidateType === 'srflx') {
+                                log(`      🧊 STUN з'єднання`);
+                            } else {
+                                log(`      🏠 Пряме з'єднання`);
+                            }
+                        }
+                    }
+                });
+                
+                // Загальний аналіз
+                if (!activePair) {
+                    log('❌ НЕМАЄ АКТИВНОЇ ПАРИ КАНДИДАТІВ!', 'error');
+                    if (turnModeEnabled) {
+                        log('🔧 ДІАГНОСТИКА TURN: З\'єднання не встановлено!', 'error');
+                        log('   Можливі причини:');
+                        log('   1. TURN сервер недоступний');
+                        log('   2. Неправильні credentials (robotclient:robotclient2024)');
+                        log('   3. Мережеві обмеження/файревол');
+                        log('   4. TURN сервер не налаштований для relay');
+                    }
+                } else {
+                    log('✅ Активна пара знайдена та проаналізована');
+                    if (turnModeEnabled) {
+                        // Додаткова перевірка для TURN режиму
+                        const localCand = localCandidates.find(c => c.id === activePair.localCandidateId);
+                        const remoteCand = remoteCandidates.find(c => c.id === activePair.remoteCandidateId);
+                        
+                        if (localCand?.candidateType === 'relay' || remoteCand?.candidateType === 'relay') {
+                            log('✅ TURN ДІАГНОСТИКА: УСПІХ! TURN сервери працюють правильно!', 'connected');
+                            log('🎯 TURN credentials функціональні: robotclient:robotclient2024', 'connected');
+                        } else {
+                            log('❌ TURN ДІАГНОСТИКА: ПРОВАЛ! Не використовується relay!', 'error');
+                            log('🔧 TURN режим включено, але з\'єднання не через TURN!', 'error');
+                        }
+                    }
+                }
+                
+            } catch (error) {
+                log(`❌ Помилка аналізу ICE кандидатів: ${error.message}`, 'error');
+            }
+        }
+        
+        // Детальний аналіз WebRTC статистики
+        function analyzeStatsDetailed(stats) {
+            log('📊 ДЕТАЛЬНА СТАТИСТИКА:');
+            
+            let inboundVideo = null;
+            let transport = null;
+            
+            stats.forEach(report => {
+                if (report.type === 'inbound-rtp' && report.mediaType === 'video') {
+                    inboundVideo = report;
+                } else if (report.type === 'transport') {
+                    transport = report;
+                }
+            });
+            
+            // Відео статистика
+            if (inboundVideo) {
+                log(`📹 Відеопотік:`);
+                log(`   Отримано: ${inboundVideo.bytesReceived || 0} байт, ${inboundVideo.packetsReceived || 0} пакетів`);
+                log(`   Кадри: ${inboundVideo.framesReceived || 0} отримано, ${inboundVideo.framesDecoded || 0} декодовано`);
+                log(`   Втрати: ${inboundVideo.packetsLost || 0} пакетів`);
+            }
+            
+            // Транспорт статистика
+            if (transport) {
+                log(`🌐 Транспорт:`);
+                log(`   Відправлено: ${transport.bytesSent || 0} байт, ${transport.packetsSent || 0} пакетів`);
+                log(`   Отримано: ${transport.bytesReceived || 0} байт, ${transport.packetsReceived || 0} пакетів`);
+                
+                if (transport.selectedCandidatePairId) {
+                    log(`   Використовується пара кандидатів: ${transport.selectedCandidatePairId}`);
+                }
+            }
+        }
+
+        // 3. JS: додати змінні та функції для геймпада
+        let gamepadIndex = null;
+        let gamepadConnected = false;
+        let gamepadInterval = null;
+
+        function connectGamepad() {
+            window.addEventListener('gamepadconnected', onGamepadConnected);
+            window.addEventListener('gamepaddisconnected', onGamepadDisconnected);
+            // Спробувати знайти вже підключений геймпад
+            const gps = navigator.getGamepads();
+            for (let i = 0; i < gps.length; i++) {
+                if (gps[i]) {
+                    onGamepadConnected({gamepad: gps[i]});
+                    break;
+                }
+            }
+            log('⌨️ Очікування підключення геймпада...');
+        }
+
+        function onGamepadConnected(e) {
+            gamepadIndex = e.gamepad.index;
+            gamepadConnected = true;
+            updateStatus('gamepadStatus', '🎮', true);
+            document.getElementById('gamepadLabel').textContent = e.gamepad.id;
+            log('🎮 Геймпад підключено: ' + e.gamepad.id, 'connected');
+            if (gamepadInterval) clearInterval(gamepadInterval);
+            gamepadInterval = setInterval(pollGamepad, 50);
+        }
+
+        function onGamepadDisconnected(e) {
+            gamepadConnected = false;
+            updateStatus('gamepadStatus', '❌', false);
+            document.getElementById('gamepadLabel').textContent = '';
+            log('❌ Геймпад відключено', 'error');
+            if (gamepadInterval) clearInterval(gamepadInterval);
+        }
+
+        function pollGamepad() {
+            const gp = navigator.getGamepads()[gamepadIndex];
+            if (!gp) return;
+            // Приклад: стандартні осі для Xbox/PS контроллерів
+            const leftX = gp.axes[0] || 0;
+            const leftY = gp.axes[1] || 0;
+            const rightX = gp.axes[2] || 0;
+            const rightY = gp.axes[3] || 0;
+            // Приклад: кут камери по тригеру (або іншої осі/кнопки)
+            let cameraAngle = 0;
+            if (gp.buttons[6]) cameraAngle = gp.buttons[6].value * 90; // LT як приклад
+            // Формуємо команду
+            const command = {
+                leftStickValue: { x: +leftX.toFixed(2), y: +leftY.toFixed(2) },
+                rightStickValue: { x: +rightX.toFixed(2), y: +rightY.toFixed(2) },
+                cameraAngle: +cameraAngle.toFixed(2)
+            };
+            // Відправляємо тільки якщо WebSocket підключено
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send('COMMAND!' + JSON.stringify(command));
+            }
+        }
+
+        // Функция для разворота видео на весь экран
+        function toggleFullscreen() {
+            const video = document.getElementById('videoElement');
+            if (!document.fullscreenElement) {
+                if (video.requestFullscreen) {
+                    video.requestFullscreen();
+                } else if (video.webkitRequestFullscreen) { /* Safari */
+                    video.webkitRequestFullscreen();
+                } else if (video.msRequestFullscreen) { /* IE11 */
+                    video.msRequestFullscreen();
+                }
+            } else {
+                if (document.exitFullscreen) {
+                    document.exitFullscreen();
+                } else if (document.webkitExitFullscreen) {
+                    document.webkitExitFullscreen();
+                } else if (document.msExitFullscreen) {
+                    document.msExitFullscreen();
+                }
+            }
+        }
+    </script>
+</body>
+</html> 

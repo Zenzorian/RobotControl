@@ -65,9 +65,12 @@ namespace RobotClient.Core
                 _cancellationTokenSource = new CancellationTokenSource();
                 _controlTask = Task.Run(() => ControlLoopAsync(_cancellationTokenSource.Token));
 
-                // 4. Запуск таймера телеметрии
+                // 4. Запуск таймера телеметрии (теперь каждые 20 секунд)
                 _telemetryTimer = new Timer(async _ => await SendTelemetryAsync(), 
-                                          null, TimeSpan.Zero, TimeSpan.FromSeconds(30));
+                                          null, TimeSpan.Zero, TimeSpan.FromSeconds(20));
+
+                // 5. Отправка телеметрии сразу при подключении
+                await SendTelemetryAsync();
 
                 _isRunning = true;
                 Console.WriteLine("🟢 Поток управления роботом запущен успешно!");

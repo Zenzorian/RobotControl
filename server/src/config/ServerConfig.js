@@ -1,6 +1,6 @@
 class ServerConfig {
   static get DEFAULT_PORT() {
-    return 8080;
+    return 80;
   }
 
   static get HEALTH_CHECK_INTERVAL() {

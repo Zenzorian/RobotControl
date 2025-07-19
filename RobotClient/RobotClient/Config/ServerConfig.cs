@@ -13,7 +13,7 @@ namespace RobotClient.Config
         /// <summary>
         /// Порт сервера
         /// </summary>
-        public const int SERVER_PORT = 8080;
+        public const int SERVER_PORT = 80;
         
         /// <summary>
         /// Полный URL WebSocket сервера
@@ -43,7 +43,7 @@ namespace RobotClient.Config
         /// <summary>
         /// Интервал отправки телеметрии в секундах
         /// </summary>
-        public const int TELEMETRY_INTERVAL_SECONDS = 30;
+        public const int TELEMETRY_INTERVAL_SECONDS = 20;
         
         /// <summary>
         /// Интервал проверки соединения в секундах

@@ -185,15 +185,44 @@ namespace RobotClient.Control
             Vector2 leftStick, 
             Vector2 rightStick)
         {
-            // Базовая скорость от левого стика (вперед/назад)
-            float forwardSpeed = leftStick.y;
-            
-            // Поворот от правого стика (или левого стика по X)
-            float turnSpeed = rightStick.x != 0 ? rightStick.x : leftStick.x;
+            float forward = leftStick.y; // Вперед/назад
+            float turn = rightStick.x;  // Поворот
 
-            // Дифференциальное управление
-            float leftSpeed = forwardSpeed - turnSpeed;
-            float rightSpeed = forwardSpeed + turnSpeed;
+            // Порог для определения "около нуля"
+            const float deadzone = 0.1f;
+
+            float leftSpeed = 0f;
+            float rightSpeed = 0f;
+
+            // Вращение на месте
+            if (Math.Abs(forward) < deadzone && Math.Abs(turn) > deadzone)
+            {
+                // Если turn > 0 — вправо: левая гусеница вперед, правая назад
+                // Если turn < 0 — влево: правая гусеница вперед, левая назад
+                leftSpeed = turn > 0 ? 1.0f * turn : -1.0f * Math.Abs(turn);
+                rightSpeed = turn > 0 ? -1.0f * turn : 1.0f * Math.Abs(turn);
+            }
+            else
+            {
+                // Обычное движение вперед/назад с замедлением одной гусеницы для поворота
+                leftSpeed = forward;
+                rightSpeed = forward;
+
+                if (turn > deadzone)
+                {
+                    // Замедляем правую гусеницу
+                    rightSpeed *= 1.0f - Math.Min(Math.Abs(turn), 1.0f);
+                }
+                else if (turn < -deadzone)
+                {
+                    // Замедляем левую гусеницу
+                    leftSpeed *= 1.0f - Math.Min(Math.Abs(turn), 1.0f);
+                }
+            }
+
+            // Ограничиваем значения
+            leftSpeed = Math.Clamp(leftSpeed, -1.0f, 1.0f);
+            rightSpeed = Math.Clamp(rightSpeed, -1.0f, 1.0f);
 
             return (leftSpeed, rightSpeed);
         }
